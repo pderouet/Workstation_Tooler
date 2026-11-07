@@ -1,8 +1,13 @@
-"""Singleton ConfigLoader : chargement des fichiers de configuration YAML.
+"""Singleton ConfigLoader : chargement de la configuration YAML de l'application.
 
-Charge au démarrage les fichiers ``config/settings.yaml`` (configuration
-générale) et ``config/modules_config.yaml`` (configuration par module), et
-expose un accès en lecture simple au reste de l'application.
+Charge au démarrage le fichier ``config/settings.yaml`` (configuration
+générale, incluant le chemin réseau du catalogue des mises à jour) et expose
+un accès en lecture simple au reste de l'application.
+
+La configuration propre à chaque application gérée (métadonnées, versions,
+fichiers à déployer) est externalisée sur le chemin réseau ``repository.uri``
+(voir ``docs/moteur_mise_a_jour.md``) : elle ne fait plus partie de la
+configuration locale.
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ from core import SingletonMeta
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
-DEFAULT_MODULES_CONFIG_PATH = PROJECT_ROOT / "config" / "modules_config.yaml"
 
 
 class ConfigLoader(metaclass=SingletonMeta):
@@ -26,27 +30,19 @@ class ConfigLoader(metaclass=SingletonMeta):
         >>> ConfigLoader().get_setting("logging.level", default="INFO")
     """
 
-    def __init__(
-        self,
-        settings_path: Path = DEFAULT_SETTINGS_PATH,
-        modules_config_path: Path = DEFAULT_MODULES_CONFIG_PATH,
-    ) -> None:
-        """Charge les fichiers de configuration fournis.
+    def __init__(self, settings_path: Path = DEFAULT_SETTINGS_PATH) -> None:
+        """Charge le fichier de configuration fourni.
 
         Args:
             settings_path: Chemin du fichier de configuration générale.
-            modules_config_path: Chemin du fichier de configuration des modules.
         """
         self._settings_path = settings_path
-        self._modules_config_path = modules_config_path
         self._settings: Dict[str, Any] = {}
-        self._modules_config: Dict[str, Any] = {}
         self.reload()
 
     def reload(self) -> None:
-        """Recharge les fichiers de configuration depuis le disque."""
+        """Recharge le fichier de configuration depuis le disque."""
         self._settings = self._load_yaml(self._settings_path)
-        self._modules_config = self._load_yaml(self._modules_config_path)
 
     @staticmethod
     def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -76,18 +72,6 @@ class ConfigLoader(metaclass=SingletonMeta):
             La valeur trouvée ou ``default``.
         """
         return self._resolve(self._settings, dotted_key, default)
-
-    def get_module_config(self, module_name: str, default: Optional[Any] = None) -> Any:
-        """Récupère la configuration propre à un module.
-
-        Args:
-            module_name: Nom du module (ex. ``"openshift"``).
-            default: Valeur retournée si le module n'a pas de configuration.
-
-        Returns:
-            Le dictionnaire de configuration du module ou ``default``.
-        """
-        return self._modules_config.get("modules", {}).get(module_name, default)
 
     @staticmethod
     def _resolve(data: Dict[str, Any], dotted_key: str, default: Optional[Any]) -> Any:

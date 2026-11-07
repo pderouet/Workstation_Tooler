@@ -5,9 +5,19 @@ logging:
   file: logs/workstation_tooler.log
 
 update:
-  check_interval_minutes: 60          # Fréquence de vérification des mises à jour des modules.
+  check_interval_minutes: 60          # Fréquence de vérification des mises à jour des applications.
   app_check_interval_minutes: 240     # Fréquence de vérification de la mise à jour de l'application.
   check_on_startup: true
+
+# Chemin réseau unique hébergeant le catalogue des applications : un dossier par
+# application, contenant un app.yaml (métadonnées) et un dossier par version
+# avec son manifest.yaml (fichiers et actions). Voir docs/moteur_mise_a_jour.md.
+# Aucun mot de passe ici : variable d'environnement WORKSTATION_TOOLER_SMB_PASSWORD.
+repository:
+  uri: "smb://localhost/Workstation_Tooler"   # file:///chemin/local accepté (dev, tests).
+  username: "guest"       # Partage public : compte mappé invité (map to guest côté serveur).
+  domain: ""
+  timeout_seconds: 30
 
 github:
   repository: "pderouet/Workstation_Tooler"

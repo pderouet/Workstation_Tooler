@@ -6,16 +6,21 @@ plugin OpenShift CloudNativePG, Vim, DBeaver, FreeLens, K9s et le déploiement d
 la configuration PowerShell du poste.
 
 L'architecture repose sur un socle de singletons (`core/` : Logger, EventBus,
-ThreadManager, ConfigLoader, ErrorHandler, Scheduler, AppUpdater) auquel
-s'attachent des modules de mise à jour indépendants (`modules/`), découverts
-dynamiquement au démarrage. L'interface se limite à une icône SystemTray (`ui/`)
-dont l'état visuel reflète l'activité : vert (OK), bleu (information / mise à
-jour disponible), jaune (opération en cours).
+ThreadManager, ConfigLoader, ErrorHandler, Scheduler, AppUpdater) et sur un
+**moteur de mise à jour** (`engine/`) piloté par un **catalogue hébergé sur un
+chemin réseau unique** (partage SMB) : chaque application gérée est décrite par
+un `app.yaml` et chaque version par un `manifest.yaml` (actions `copy`,
+`decompress`, `ensure_content`). Ajouter un outil ne demande **aucun code
+local** — voir [`docs/moteur_mise_a_jour.md`](docs/moteur_mise_a_jour.md).
+L'interface se limite à une icône SystemTray (`ui/`) dont l'état visuel reflète
+l'activité : vert (OK), bleu (information / mise à jour disponible), jaune
+(opération en cours).
 
 ## Prérequis
 
 - Python 3.14 ou supérieur
 - Un environnement de bureau avec SystemTray (GNOME : extension AppIndicator, etc.)
+- Un chemin réseau hébergeant le catalogue (`repository.uri`), ex. un partage SMB
 
 ## Installation
 
@@ -32,9 +37,11 @@ python -m venv .venv
 
 Les logs sont écrits dans `logs/workstation_tooler.log` (dossier créé au
 premier lancement). La configuration générale (`config/settings.yaml`) définit
-notamment le niveau de log et les intervalles de vérification des mises à
-jour ; la configuration par outil (`config/modules_config.yaml`) active chaque
-module et précise sa version cible et son URL de téléchargement.
+notamment le niveau de log, les intervalles de vérification et le chemin réseau
+du catalogue (`repository.uri` — un chemin `file://` est accepté pour développer
+sans partage). Le mot de passe SMB éventuel se fournit via la variable
+d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`. Un exemple de catalogue est
+disponible dans [`examples/partage/`](examples/partage/README.md).
 
 ## Développement
 
@@ -57,7 +64,8 @@ Les variantes colorées des icônes du SystemTray se régénèrent via :
 ## Structure du projet
 
 L'arborescence de référence est décrite dans
-[`docs/arborescence.md`](docs/arborescence.md).
+[`docs/arborescence.md`](docs/arborescence.md), le fonctionnement du moteur
+dans [`docs/moteur_mise_a_jour.md`](docs/moteur_mise_a_jour.md).
 
 ## Agents IA
 

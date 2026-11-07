@@ -1,33 +1,33 @@
 """Point d'entrée principal de Workstation Tooler.
 
 Initialise les singletons du socle (``Logger``, ``EventBus``, ``ConfigLoader``,
-``ThreadManager``), charge dynamiquement les modules disponibles dans le
-paquet ``modules/`` et démarre l'application PyQt6 avec son icône dans le
-SystemTray.
+``ThreadManager``), construit le moteur de mise à jour branché sur le chemin
+réseau du catalogue (``repository.uri`` de ``settings.yaml``) et démarre
+l'application PyQt6 avec son icône dans le SystemTray.
+
+Les applications gérées ne sont plus des modules Python : elles sont découvertes
+dynamiquement depuis le catalogue distant (voir ``docs/moteur_mise_a_jour.md``).
 """
 
 from __future__ import annotations
 
-import importlib
-import inspect
 import logging
-import pkgutil
 import sys
 from pathlib import Path
-from types import ModuleType
-from typing import List, Type
+from typing import Tuple
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox, QStyle
 
-import modules as modules_package
 from core.config_loader import ConfigLoader
 from core.error_handler import ErrorHandler
 from core.event_bus import EventBus
 from core.logger import Logger
 from core.scheduler import Scheduler
 from core.thread_manager import ThreadManager
-from modules.base_module import BaseModule
+from engine.repository import RemoteRepository
+from engine.storage import DEFAULT_TIMEOUT_SECONDS, build_storage_backend
+from engine.update_engine import UpdateEngine
 from ui.tray_icon import TrayIcon
 
 LOG_LEVELS = {
@@ -40,45 +40,6 @@ LOG_LEVELS = {
 
 #: Dossier contenant les icônes du SystemTray (variantes OK/Info/WIP).
 ICONS_DIR = Path(__file__).resolve().parent / "resources" / "icons"
-
-
-def discover_modules() -> List[BaseModule]:
-    """Découvre et instancie dynamiquement tous les modules de mise à jour.
-
-    Chaque sous-paquet de ``modules/`` contenant un fichier ``soft_manager.py``
-    défini une sous-classe de ``BaseModule`` est automatiquement chargé, sans
-    qu'il soit nécessaire de modifier ce fichier pour ajouter un nouvel outil.
-
-    Returns:
-        La liste des instances de modules découvertes.
-    """
-    discovered: List[BaseModule] = []
-    package_path = Path(modules_package.__file__).parent
-
-    for module_info in pkgutil.iter_modules([str(package_path)]):
-        if not module_info.ispkg:
-            continue
-
-        soft_manager_name = f"modules.{module_info.name}.soft_manager"
-        try:
-            soft_manager: ModuleType = importlib.import_module(soft_manager_name)
-        except ModuleNotFoundError:
-            continue  # Le sous-paquet ne fournit pas de soft_manager.py.
-
-        module_class: Type[BaseModule] | None = None
-        for _, candidate in inspect.getmembers(soft_manager, inspect.isclass):
-            is_base_module_subclass = (
-                issubclass(candidate, BaseModule) and candidate is not BaseModule
-            )
-            is_defined_here = candidate.__module__ == soft_manager_name
-            if is_base_module_subclass and is_defined_here:
-                module_class = candidate
-                break
-
-        if module_class is not None:
-            discovered.append(module_class())
-
-    return discovered
 
 
 def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
@@ -106,7 +67,7 @@ def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
     }
 
 
-def bootstrap() -> tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler]:
+def bootstrap() -> Tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler]:
     """Initialise les singletons du socle applicatif.
 
     Returns:
@@ -129,6 +90,36 @@ def bootstrap() -> tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHan
     return logger, event_bus, config, thread_manager, error_handler
 
 
+def build_repository(config: ConfigLoader) -> RemoteRepository:
+    """Construit le repository du catalogue depuis la section ``repository``.
+
+    Le schéma de l'URI détermine le backend : ``smb://`` pour un partage SMB,
+    ``file://`` (ou un chemin nu) pour un catalogue local (développement,
+    tests).
+
+    Args:
+        config: Configuration générale de l'application.
+
+    Returns:
+        Le repository prêt à interroger le catalogue.
+    """
+    uri = str(config.get_setting("repository.uri", default=""))
+    if not uri:
+        raise ValueError(
+            "Aucun chemin de catalogue configuré : renseignez 'repository.uri' "
+            "dans config/settings.yaml."
+        )
+    backend = build_storage_backend(
+        uri,
+        username=str(config.get_setting("repository.username", default="") or ""),
+        domain=str(config.get_setting("repository.domain", default="") or ""),
+        timeout_seconds=int(
+            config.get_setting("repository.timeout_seconds", default=DEFAULT_TIMEOUT_SECONDS)
+        ),
+    )
+    return RemoteRepository(backend)
+
+
 def main() -> int:
     """Lance l'application Workstation Tooler.
 
@@ -140,11 +131,13 @@ def main() -> int:
 
     logger, event_bus, config, thread_manager, error_handler = bootstrap()
 
-    loaded_modules = discover_modules()
-    for module in loaded_modules:
-        module.attach(logger, event_bus, config, thread_manager)
-
-    logger.info(f"{len(loaded_modules)} module(s) chargé(s) : {[m.name for m in loaded_modules]}")
+    repository = build_repository(config)
+    engine = UpdateEngine(
+        logger=logger,
+        event_bus=event_bus,
+        thread_manager=thread_manager,
+        repository=repository,
+    )
 
     if not QSystemTrayIconAvailable():
         QMessageBox.critical(
@@ -153,11 +146,17 @@ def main() -> int:
         return 1
 
     icons = load_tray_icons(app)
-    tray_icon = TrayIcon(modules=loaded_modules, icons=icons)
+    tray_icon = TrayIcon(engine=engine, icons=icons)
     tray_icon.setVisible(True)
 
+    # Chargement asynchrone du catalogue : l'UI se peuple via catalog_loaded.
+    engine.start_load_catalog(
+        on_result=lambda _catalog: None,
+        on_error=lambda exc: error_handler.handle_exception(exc, context="catalogue"),
+    )
+
     scheduler = Scheduler()
-    scheduler.configure(modules=loaded_modules)
+    scheduler.configure(engine=engine)
     scheduler.start()
 
     exit_code = app.exec()

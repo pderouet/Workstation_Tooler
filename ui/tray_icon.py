@@ -1,20 +1,23 @@
 """Interface graphique de l'application : icône dans le SystemTray.
 
 Cette interface est volontairement « fine » : elle ne contient aucune
-logique métier. Elle se contente de déclencher des actions (sur l'``AppUpdater``
-ou sur les modules, qui délèguent elles-mêmes au ``ThreadManager``) et de
-réagir aux signaux de l'``EventBus`` pour informer l'utilisateur et refléter
-l'état courant via l'icône (OK / Info / WIP).
+logique métier. Elle déclenche des actions sur l'``AppUpdater`` ou sur
+l'``UpdateEngine`` (qui délèguent eux-mêmes au ``ThreadManager``) et réagit
+aux signaux de l'``EventBus`` pour informer l'utilisateur et refléter l'état
+courant via l'icône (OK / Info / WIP).
 
 Structure du menu contextuel :
     Mise à jour Application
+    Vérifier les mises à jour
+    Tout mettre à jour
     ------------------------
-    Installation      > <module 1> | <module 2> | ...
-    Désinstallation   > <module 1> | <module 2> | ...
-    Réinstallation    > <module 1> | <module 2> | ...
-    Reconfigurer      > <module 1> | <module 2> | ...
+    Mettre à jour           > <application 1> | <application 2> | ...
+    Réappliquer la config   > <application 1> | <application 2> | ...
     ------------------------
     Quitter
+
+Les sous-menus d'applications sont (re)construits à réception du signal
+``catalog_loaded`` : le contenu du menu reflète le catalogue distant.
 """
 
 from __future__ import annotations
@@ -28,22 +31,22 @@ from core.app_updater import AppUpdater
 from core.error_handler import ErrorHandler
 from core.event_bus import EventBus
 from core.logger import Logger
-from modules.base_module import BaseModule
+from engine.update_engine import UpdateEngine
 
 
 class TrayIcon(QSystemTrayIcon):
-    """Icône du SystemTray exposant les actions de gestion des modules."""
+    """Icône du SystemTray exposant les actions du moteur de mise à jour."""
 
     def __init__(
         self,
-        modules: List[BaseModule],
+        engine: UpdateEngine,
         icons: Dict[str, QIcon],
         parent: QWidget | None = None,
     ) -> None:
-        """Construit le menu contextuel à partir des modules chargés.
+        """Construit le menu contextuel autour du moteur de mise à jour.
 
         Args:
-            modules: Liste des modules de mise à jour déjà attachés au socle.
+            engine: Moteur de mise à jour branché sur le catalogue distant.
             icons: Dictionnaire des icônes d'état, avec les clés ``"ok"``,
                 ``"info"`` et ``"wip"``.
             parent: Widget parent optionnel.
@@ -54,7 +57,10 @@ class TrayIcon(QSystemTrayIcon):
         self._event_bus = EventBus()
         self._error_handler = ErrorHandler()
         self._app_updater = AppUpdater()
-        self._modules: Dict[str, BaseModule] = {module.name: module for module in modules}
+        self._engine = engine
+
+        #: Applications actives du catalogue, nom technique -> libellé UI.
+        self._applications: Dict[str, str] = {}
 
         self._active_tasks: Set[str] = set()
         self._pending_updates: Set[str] = set()
@@ -64,27 +70,31 @@ class TrayIcon(QSystemTrayIcon):
         self._connect_event_bus()
         self._refresh_icon()
 
+    # ------------------------------------------------------------------
+    # Construction du menu (reconstruit à chaque chargement de catalogue).
+    # ------------------------------------------------------------------
+
     def _build_menu(self) -> None:
-        """Construit le menu contextuel : mise à jour appli, puis actions par module."""
+        """Construit le menu contextuel : mises à jour, puis actions par application."""
         menu = QMenu()
 
         update_app_action = QAction("Mise à jour Application", menu)
         update_app_action.triggered.connect(self._on_update_app)
         menu.addAction(update_app_action)
 
+        check_action = QAction("Vérifier les mises à jour", menu)
+        check_action.triggered.connect(self._on_check_updates)
+        menu.addAction(check_action)
+
+        update_all_action = QAction("Tout mettre à jour", menu)
+        update_all_action.triggered.connect(self._on_update_all)
+        menu.addAction(update_all_action)
+
         menu.addSeparator()
 
-        self._add_module_submenu(
-            menu, "Installation", lambda m: self._on_module_action(m, "install")
-        )
-        self._add_module_submenu(
-            menu, "Désinstallation", lambda m: self._on_module_action(m, "uninstall")
-        )
-        self._add_module_submenu(
-            menu, "Réinstallation", lambda m: self._on_module_action(m, "reinstall")
-        )
-        self._add_module_submenu(
-            menu, "Reconfigurer", lambda m: self._on_module_action(m, "reconfigure")
+        self._add_application_submenu(menu, "Mettre à jour", self._on_update_application)
+        self._add_application_submenu(
+            menu, "Réappliquer la config", self._on_reconfigure_application
         )
 
         menu.addSeparator()
@@ -95,18 +105,28 @@ class TrayIcon(QSystemTrayIcon):
 
         self.setContextMenu(menu)
 
-    def _add_module_submenu(self, menu: QMenu, title: str, on_triggered) -> None:
-        """Ajoute un sous-menu contenant une entrée par module chargé.
+    def _add_application_submenu(self, menu: QMenu, title: str, on_triggered) -> None:
+        """Ajoute un sous-menu contenant une entrée par application du catalogue.
+
+        Tant que le catalogue n'est pas chargé, le sous-menu affiche une
+        entrée désactivée informant du chargement en cours.
 
         Args:
             menu: Menu parent auquel ajouter le sous-menu.
-            title: Libellé du sous-menu (ex. ``"Installation"``).
-            on_triggered: Fonction appelée avec le module sélectionné.
+            title: Libellé du sous-menu (ex. ``"Mettre à jour"``).
+            on_triggered: Fonction appelée avec le nom de l'application
+                sélectionnée.
         """
         submenu = menu.addMenu(title)
-        for module in self._modules.values():
-            action = QAction(module.display_name, submenu)
-            action.triggered.connect(lambda _checked=False, m=module: on_triggered(m))
+        if not self._applications:
+            placeholder = QAction("Catalogue en cours de chargement…", submenu)
+            placeholder.setEnabled(False)
+            submenu.addAction(placeholder)
+            return
+
+        for name, display_name in self._applications.items():
+            action = QAction(display_name, submenu)
+            action.triggered.connect(lambda _checked=False, app_name=name: on_triggered(app_name))
             submenu.addAction(action)
 
     def _connect_event_bus(self) -> None:
@@ -114,6 +134,7 @@ class TrayIcon(QSystemTrayIcon):
         self._event_bus.error_occurred.connect(self._on_error_occurred)
         self._event_bus.update_finished.connect(self._on_update_finished)
         self._event_bus.update_available.connect(self._on_update_available)
+        self._event_bus.catalog_loaded.connect(self._on_catalog_loaded)
         self._event_bus.module_status_changed.connect(self._on_module_status_changed)
         self._event_bus.task_started.connect(self._on_task_started)
         self._event_bus.task_finished.connect(self._on_task_finished)
@@ -149,41 +170,87 @@ class TrayIcon(QSystemTrayIcon):
             on_error=lambda exc: self._error_handler.handle_exception(exc, context="app"),
         )
 
-    def _on_module_action(self, module: BaseModule, action: str) -> None:
-        """Déclenche une action de cycle de vie (install/uninstall/reinstall/reconfigure).
+    def _on_check_updates(self, *_args) -> None:
+        """Déclenche la vérification des mises à jour de toutes les applications."""
+        self._engine.start_check_updates(
+            on_result=self._on_check_result,
+            on_error=lambda exc: self._error_handler.handle_exception(exc, context="moteur"),
+        )
 
-        Args:
-            module: Module concerné.
-            action: Nom de l'action (``"install"``, ``"uninstall"``,
-                ``"reinstall"`` ou ``"reconfigure"``).
-        """
-        action_labels = {
-            "install": "Installation",
-            "uninstall": "Désinstallation",
-            "reinstall": "Réinstallation",
-            "reconfigure": "Reconfiguration",
-        }
-        starters = {
-            "install": module.start_install,
-            "uninstall": module.start_uninstall,
-            "reinstall": module.start_reinstall,
-            "reconfigure": module.start_reconfigure,
-        }
-        label = action_labels[action]
-        starter = starters[action]
+    def _on_check_result(self, status: dict) -> None:
+        """Informe l'utilisateur lorsque la vérification ne trouve rien à faire."""
+        updates: List[str] = status.get("updates_available", [])
+        if not updates:
+            self.showMessage(
+                "Workstation Tooler",
+                "Aucune mise à jour disponible.",
+                QSystemTrayIcon.MessageIcon.Information,
+            )
 
-        starter(
-            on_result=lambda success, m=module, lbl=label: self._event_bus.update_finished.emit(
-                m.name, success, f"{lbl} terminée." if success else f"{lbl} en échec."
+    def _on_update_all(self, *_args) -> None:
+        """Déclenche la mise à jour de toutes les applications obsolètes ou absentes."""
+        self._engine.start_update_all(
+            on_result=self._on_update_all_result,
+            on_error=lambda exc: self._error_handler.handle_exception(exc, context="moteur"),
+        )
+
+    def _on_update_all_result(self, results: dict) -> None:
+        """Résume le résultat global des mises à jour en une notification."""
+        if not results:
+            self.showMessage(
+                "Workstation Tooler",
+                "Aucune mise à jour disponible.",
+                QSystemTrayIcon.MessageIcon.Information,
+            )
+            return
+        success = all(results.values())
+        succeeded = sum(1 for ok in results.values() if ok)
+        message = (
+            f"Mises à jour terminées : {succeeded}/{len(results)} réussie(s)."
+            if success
+            else f"Mises à jour terminées avec échecs : {succeeded}/{len(results)} réussie(s)."
+        )
+        self._event_bus.update_finished.emit("global", success, message)
+
+    def _on_update_application(self, application: str) -> None:
+        """Déclenche la mise à jour d'une application du catalogue."""
+        self._engine.start_update_application(
+            application,
+            on_result=lambda success, name=application: self._event_bus.update_finished.emit(
+                name,
+                success,
+                "Mise à jour terminée." if success else "Mise à jour en échec.",
             ),
-            on_error=lambda exc, m=module: self._error_handler.handle_exception(
-                exc, context=m.name
+            on_error=lambda exc, name=application: self._error_handler.handle_exception(
+                exc, context=name
+            ),
+        )
+
+    def _on_reconfigure_application(self, application: str) -> None:
+        """Réapplique la configuration (actions ``ensure_content``) d'une application."""
+        self._engine.start_reconfigure_application(
+            application,
+            on_result=lambda success, name=application: self._event_bus.update_finished.emit(
+                name,
+                success,
+                "Configuration réappliquée." if success else "Reconfiguration en échec.",
+            ),
+            on_error=lambda exc, name=application: self._error_handler.handle_exception(
+                exc, context=name
             ),
         )
 
     # ------------------------------------------------------------------
     # Réactions aux signaux de l'EventBus.
     # ------------------------------------------------------------------
+
+    def _on_catalog_loaded(self, applications: list) -> None:
+        """Remplace les sous-menus d'applications par le contenu du catalogue chargé."""
+        self._applications = {entry["name"]: entry["display_name"] for entry in applications}
+        self._logger.info(
+            f"[tray] catalogue reçu : {sorted(self._applications)} ; reconstruction du menu."
+        )
+        self._build_menu()
 
     def _on_update_finished(self, target_name: str, success: bool, message: str) -> None:
         """Affiche une notification de fin d'opération et met à jour l'état des mises à jour en attente."""
@@ -209,9 +276,9 @@ class TrayIcon(QSystemTrayIcon):
             QSystemTrayIcon.MessageIcon.Information,
         )
 
-    def _on_module_status_changed(self, module_name: str, status: str) -> None:
-        """Journalise les changements de statut d'un module."""
-        self._logger.info(f"[{module_name}] statut -> {status}")
+    def _on_module_status_changed(self, target_name: str, status: str) -> None:
+        """Journalise les changements de statut d'une cible (application, catalogue)."""
+        self._logger.info(f"[{target_name}] statut -> {status}")
 
     def _on_error_occurred(self, title: str, message: str) -> None:
         """Affiche une erreur applicative sous forme de notification."""

@@ -1,0 +1,7 @@
+application: vim
+display_name: Vim
+enabled: true
+version_detection:
+  binary: vim
+  args: ["--version"]
+  pattern: 'Vi IMproved (\S+)'

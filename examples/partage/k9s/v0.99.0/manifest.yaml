@@ -1,0 +1,7 @@
+# Manifest de la version v0.99.0 (factice) de l'application k9s.
+# Démontre l'action decompress seule, pour un binaire autonome.
+version: "v0.99.0"
+files:
+  - source: k9s_Linux_amd64.tar.gz
+    action: decompress
+    target: "~/.local/share/workstation_tooler/exemples/k9s/v0.99.0"

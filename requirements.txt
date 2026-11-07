@@ -1,2 +1,8 @@
 PyQt6>=6.6
 PyYAML>=6.0
+# Justification (règle AGENTS.md) : la bibliothèque standard n'offre aucun client
+# SMB. Le paquet "smbprotocol" fournit le module "smbclient", un client pur
+# Python multiplateforme, qui permet d'accéder directement au partage du
+# catalogue de mises à jour sans montage OS ni configuration préalable du poste,
+# et dont les appels sont facilement simulables (mock) dans les tests.
+smbprotocol>=1.10

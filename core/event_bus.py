@@ -20,12 +20,15 @@ class EventBus(QObject):
     Signaux exposés :
         log_message(str, str): niveau, message — pour relayer un log vers l'UI.
         error_occurred(str, str): titre, message — erreur à notifier à l'utilisateur.
-        module_status_changed(str, str): nom du module, nouveau statut.
-        update_progress(str, int): nom du module (ou ``"app"``), pourcentage de progression.
-        update_finished(str, bool, str): nom du module (ou ``"app"``), succès, message.
-        update_available(str, str, str): nom de la cible (``"app"`` ou module), version
+        module_status_changed(str, str): nom de la cible (application ou ``"app"``),
+            nouveau statut.
+        update_progress(str, int): nom de la cible (ou ``"app"``), pourcentage de progression.
+        update_finished(str, bool, str): nom de la cible (ou ``"app"``), succès, message.
+        update_available(str, str, str): nom de la cible (``"app"`` ou application), version
             courante, version disponible — émis par le ``Scheduler`` ou une vérification manuelle.
-        task_started(str): nom de la tâche de fond démarrée (ex. ``"module.install"``),
+        catalog_loaded(list): applications actives du catalogue distant, sous forme de
+            dictionnaires ``{"name", "display_name"}`` — émis par l'``UpdateEngine``.
+        task_started(str): nom de la tâche de fond démarrée (ex. ``"engine.vim.mise_a_jour"``),
             utilisé par l'UI pour refléter un état « en cours » (icône WIP).
         task_finished(str): nom de la tâche de fond terminée, utilisé par l'UI pour
             revenir à un état stable (icône OK/Info) une fois toutes les tâches closes.
@@ -37,6 +40,7 @@ class EventBus(QObject):
     update_progress = pyqtSignal(str, int)
     update_finished = pyqtSignal(str, bool, str)
     update_available = pyqtSignal(str, str, str)
+    catalog_loaded = pyqtSignal(list)
     task_started = pyqtSignal(str)
     task_finished = pyqtSignal(str)
 

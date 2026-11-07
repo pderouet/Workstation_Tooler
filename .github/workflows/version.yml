@@ -1,0 +1,44 @@
+name: Increment Version
+
+on:
+  push:
+    branches:
+      - main  # Adaptez le nom de votre branche principale si nécessaire
+
+jobs:
+  bump-version:
+    # Empêche l'action de se déclencher si le commit contient [skip ci]
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Increment version
+        run: |
+          # Lit la version actuelle (ex: 1.0.0)
+          VERSION=$(cat version.txt)
+          echo "Current version: $VERSION"
+          
+          # Sépare la version en tableau via le point
+          IFS='.' read -ra ADDR <<< "$VERSION"
+          
+          # Incrémente le dernier chiffre (Patch)
+          ADDR[2]=$((ADDR[2] + 1))
+          
+          # Recrée la chaîne de version
+          NEW_VERSION="${ADDR[0]}.${ADDR[1]}.${ADDR[2]}"
+          echo "New version: $NEW_VERSION"
+          
+          # Écrit la nouvelle version dans le fichier
+          echo "$NEW_VERSION" > version.txt
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.txt
+          git commit -m "chore: bump version to $(cat version.txt) [skip ci]"
+          git push

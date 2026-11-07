@@ -1,0 +1,4 @@
+" Configuration de démonstration ajoutée par Workstation Tooler.
+" (action ensure_content du manifest de la version 9.9.9999)
+set number
+syntax on

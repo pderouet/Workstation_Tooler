@@ -8,48 +8,47 @@
 ├── README.md                           # Présentation, installation, lancement
 ├── pyproject.toml                      # Configuration ruff (lint/format) et pytest
 ├── config/
-│   ├── settings.yaml                   # Configuration générale
-│   └── modules_config.yaml             # Configuration spécifique aux modules
+│   └── settings.yaml                   # Configuration générale (logging, scheduler, repository.uri, github, ui)
 ├── core/
 │   ├── __init__.py                     # SingletonMeta (métaclasse Singleton partagée)
 │   ├── logger.py                       # Singleton Logger (avec Thread ID)
-│   ├── event_bus.py                    # Singleton EventBus (PyQtSignal)
-│   ├── config_loader.py                # Gestion du chargement des fichiers config
+│   ├── event_bus.py                    # Singleton EventBus (PyQtSignal, dont catalog_loaded)
+│   ├── config_loader.py                # Chargement de config/settings.yaml (clés à points)
 │   ├── thread_manager.py               # Singleton gestionnaire de QThreads/Workers
 │   ├── error_handler.py                # Système de gestion d'erreurs centralisé
 │   ├── app_updater.py                  # Singleton de mise à jour de l'application elle-même
 │   └── scheduler.py                    # Singleton de planification des vérifications récurrentes
 ├── docs/
-│   └── arborescence.md                 # Ce document : description de référence de l'arborescence
-├── modules/
-│   ├── __init__.py
-│   ├── base_module.py                  # Classe abstraite pour les modules de mise à jour
-│   ├── openshift/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique à OpenShift
-│   ├── openshift_cnpg/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique au plugin OpenShift CloudNativePG
-│   ├── vim/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique à Vim
-│   ├── dbeaver/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique à DBeaver
-│   ├── freelens/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique à FreeLens
-│   ├── k9s/
-│   │   ├── __init__.py
-│   │   └── soft_manager.py             # Logique spécifique à K9s
-│   └── powershell_config/
-│       ├── __init__.py
-│       └── soft_manager.py             # Déploiement de la configuration PowerShell du poste
+│   ├── arborescence.md                 # Ce document : description de référence de l'arborescence
+│   └── moteur_mise_a_jour.md           # Référence du moteur : catalogue distant, manifests, actions
+├── engine/                             # Moteur de mise à jour piloté par le catalogue distant
+│   ├── __init__.py                     # Présentation du paquet engine
+│   ├── models.py                       # Dataclasses du catalogue + parsing/validation stricts des YAML
+│   ├── version.py                      # Comparaison de versions (tri naturel), résolution « plus récente »
+│   ├── storage.py                      # StorageBackend : SMB (smbprotocol) et local (file://), fabrique
+│   ├── repository.py                   # Vue typée du catalogue (applications, versions, manifests)
+│   ├── catalog.py                      # Chargement résilient du catalogue depuis le chemin réseau
+│   ├── detection.py                    # Détection de la version installée (déclarée dans app.yaml)
+│   ├── actions.py                      # Exécuteurs copy / decompress / ensure_content
+│   └── update_engine.py                # Orchestrateur (vérifications, mises à jour, wrappers start_*)
+├── examples/
+│   └── partage/                        # Catalogue d'exemple à recopier sur le chemin réseau de test
+│       ├── README.md                   # Mode d'emploi (alimentation du partage, essai file://)
+│       ├── vim/                        # Démontre decompress + copy (mode 755) + ensure_content
+│       └── k9s/                        # Démontre decompress seule
 ├── tests/
-│   └── test_config_loader.py           # Tests headless du ConfigLoader (logique pure)
+│   ├── conftest.py                     # Faux catalogue complet sur système de fichiers local (fixtures)
+│   ├── test_config_loader.py           # Tests headless du ConfigLoader
+│   ├── test_version.py                 # Tri naturel des versions
+│   ├── test_models.py                  # Parsing/validation des manifests (schéma strict)
+│   ├── test_storage.py                 # Backend local, fabrique, conversion URI smb:// → UNC
+│   ├── test_catalog.py                 # Repository et chargement du catalogue
+│   ├── test_detection.py               # Extraction de version (exécuteur de commandes injecté)
+│   ├── test_actions.py                 # copy / decompress (zip, tar.gz, gz) / ensure_content
+│   └── test_engine.py                  # Orchestrateur complet (doublures du socle, sans Qt)
 ├── ui/
 │   ├── __init__.py
-│   └── tray_icon.py                    # Interface PyQt6 SystemTray
+│   └── tray_icon.py                    # Interface PyQt6 SystemTray (menu dynamique selon le catalogue)
 ├── resources/
 │   └── icons/
 │       ├── app_icon.ico                # Icône source
@@ -57,6 +56,6 @@
 │       ├── app_icon_info.ico           # Variante bleue (information / maj disponible)
 │       ├── app_icon_wip.ico            # Variante jaune (opération en cours)
 │       └── generate_icon_variants.py   # Utilitaire de génération des variantes colorées
-├── main.py                             # Point d'entrée principal
-├── requirements.txt                    # Dépendances runtime (PyQt6, PyYAML)
+├── main.py                             # Point d'entrée : socle + UpdateEngine + TrayIcon + Scheduler
+├── requirements.txt                    # Dépendances runtime (PyQt6, PyYAML, smbprotocol)
 └── requirements-dev.txt                # Dépendances de développement (ruff, pytest, Pillow)

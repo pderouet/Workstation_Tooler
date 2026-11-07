@@ -1,0 +1,16 @@
+# Manifest de la version 9.9.9999 (factice) de l'application vim.
+# Démontre les trois mots-clés d'action : decompress, copy, ensure_content.
+version: "9.9.9999"
+files:
+  - source: vim-9.9.9999.tar.gz
+    action: decompress
+    target: "~/.local/share/workstation_tooler/exemples/vim/9.9.9999"
+
+  - source: vim-exemple
+    action: copy
+    target: "~/.local/bin/vim-exemple"
+    mode: "755"
+
+  - source: vimrc.fragment
+    action: ensure_content
+    target: "~/.config/workstation_tooler/exemples/vimrc"

@@ -8,26 +8,27 @@
 ## 🎯 Objectif du Projet
 Application Python utilisant PyQt6 dont le point d'entrée est une icône dans le SystemTray.
 L'application gère la mise à jour d'outils binaires et logiciels (OpenShift, Vim, DBeaver,
-Freelens, etc.) pour les postes de travail.
+Freelens, K9s, etc.) pour les postes de travail, à partir d'un catalogue hébergé sur un
+chemin réseau unique (partage SMB).
 
 ## 🏗️ Architecture Technique (Contraintes Strictes)
 
 ### 1. Patrons de Conception (Singletons)
-L'application repose sur plusieurs Singletons obligatoires, tous basés sur la métaclasse
-`SingletonMeta` (`core/__init__.py`). Tout nouveau composant technique doit vérifier s'il
-doit être un singleton :
+L'application repose sur plusieurs Singletons obligatoires, basés sur la métaclasse
+`SingletonMeta` (`core/__init__.py`) — ou sur un `__new__` gardé pour les `QObject`. Tout
+nouveau composant technique doit vérifier s'il doit être un singleton :
 - **Logger** (`core/logger.py`) : Doit inclure systématiquement le nom/ID du thread émetteur
   dans chaque log.
 - **EventBus** (`core/event_bus.py`) : Basé sur `pyqtSignal`. C'est le canal de communication
-  unique entre les threads et l'UI.
+  unique entre les threads et l'UI (y compris `catalog_loaded`, qui peuple le menu).
 - **ThreadManager** (`core/thread_manager.py`) : Gère le cycle de vie des `QThread` et des
   Workers pour garantir que l'UI ne soit jamais bloquée.
-- **ConfigLoader** (`core/config_loader.py`) : Charge les fichiers de configuration
-  (`config/settings.yaml`, `config/modules_config.yaml`) au démarrage.
+- **ConfigLoader** (`core/config_loader.py`) : Charge `config/settings.yaml` au démarrage
+  (accès par clés à points, ex. `repository.uri`).
 - **ErrorHandler** (`core/error_handler.py`) : Gestion centralisée des erreurs (logging +
   notification UI via l'EventBus).
 - **Scheduler** (`core/scheduler.py`) : Planifie les vérifications récurrentes (application
-  et modules) via `QTimer`, en déléguant l'exécution au `ThreadManager`.
+  et applications du catalogue) via `QTimer`, en déléguant l'exécution au `ThreadManager`.
 - **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même (dépôt
   GitHub configuré dans `config/settings.yaml`).
 
@@ -37,15 +38,20 @@ doit être un singleton :
   capturées et envoyées au gestionnaire d'erreurs centralisé qui se charge du logging et de
   la notification via l'EventBus.
 
-### 3. Modularité Fonctionnelle
-- Chaque application mise à jour est un module indépendant dans `modules/`.
-- Chaque module doit hériter de `BaseModule` (`modules/base_module.py`).
-- **Mécanique d'initialisation** : Chaque module est attaché au socle via
-  `attach(logger, event_bus, config, thread_manager)` (accès au logger, eventbus et config).
-- Le chargement des modules est dynamique au démarrage (`main.discover_modules()` :
-  tout sous-paquet de `modules/` exposant une sous-classe de `BaseModule` dans
-  `soft_manager.py` est découvert automatiquement — inutile de modifier `main.py` pour
-  ajouter un outil).
+### 3. Moteur de mise à jour piloté par catalogue (`engine/`)
+Il n'y a **plus de module Python par outil** : un moteur unique découvre les applications
+depuis le catalogue distant — un dossier par application avec `app.yaml`, un dossier par
+version avec `manifest.yaml`, actions `copy` / `decompress` / `ensure_content`. Référence
+complète : `docs/moteur_mise_a_jour.md`. Ajouter un outil = déposer des fichiers sur le
+partage, **zéro code local**.
+- **UpdateEngine** (`engine/update_engine.py`) : orchestrateur unique (catalogue,
+  vérifications, mises à jour, reconfiguration), câblé dans `main.py` sur un
+  `RemoteRepository` (`engine/repository.py`) appuyé sur un `StorageBackend`
+  (`engine/storage.py` : SMB via `smbprotocol`, ou `file://` pour dev/tests).
+- **Validation stricte des manifests** (`engine/models.py`) : schéma fermé, `yaml.safe_load`,
+  actions limitées à l'enum — toute clé inconnue est une erreur.
+- **Résilience** : une application mal déclarée est ignorée et journalisée, sans empêcher
+  le traitement des autres.
 
 ### Gestion de l'arborescence
 - L'arborescence doit être basée sur la description qui en est faite dans le document
@@ -67,12 +73,14 @@ doit être un singleton :
 - Privilégier du code simple, lisible et facile à tester.
 
 ### Développement
-- **Thread-Safety** : Toute opération I/O ou mise à jour logicielle doit être déléguée au
-  `ThreadManager` via un `QThread`.
+- **Thread-Safety** : Toute opération I/O (réseau SMB, sous-processus, fichiers) doit être
+  déléguée au `ThreadManager` via un `QThread` — les méthodes bloquantes du moteur ne
+  s'appellent qu'à travers les wrappers `start_*`.
 - **Dépendances** : Ne pas ajouter de librairies tierces sans justification écrite ;
   dépendances runtime dans `requirements.txt`, dépendances de développement dans
-  `requirements-dev.txt`.
-- **Secrets** : Aucun mot de passe ou clé API en dur.
+  `requirements-dev.txt` (justification de `smbprotocol` en tête de `requirements.txt`).
+- **Secrets** : Aucun mot de passe ou clé API en dur — le mot de passe SMB éventuel passe
+  par la variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`.
 
 ## 🖥️ Environnement & Lancement
 - **Prérequis** : Python 3.14 ou supérieur.
@@ -83,13 +91,15 @@ doit être un singleton :
   .venv/bin/pip install -r requirements-dev.txt        # dev : tests, lint, icônes
   ```
 - **Lancement** : `.venv/bin/python main.py` (le dossier `logs/` et le fichier de log
-  `logs/workstation_tooler.log` sont créés au premier lancement).
+  `logs/workstation_tooler.log` sont créés au premier lancement ; le catalogue est chargé
+  en tâche de fond au démarrage).
 - **Icônes** : les variantes colorées du SystemTray sont (re)générées par
   `python resources/icons/generate_icon_variants.py` (nécessite Pillow, fourni par
   `requirements-dev.txt`).
 - **Configuration** : ne pas modifier les fichiers de `config/` sans coordination ;
-  la config générale est dans `config/settings.yaml`, la config par module dans
-  `config/modules_config.yaml`.
+  la config générale est dans `config/settings.yaml` (chemin réseau du catalogue :
+  `repository.uri`). La configuration des applications gérées est **externalisée sur le
+  chemin réseau** (voir `docs/moteur_mise_a_jour.md`).
 
 ## 🧹 Qualité de Code
 Avant de livrer une modification, s'assurer que :
@@ -104,14 +114,16 @@ plutôt que de les ignorer.
 - Framework : **pytest**, tests dans `tests/` (configuration dans `pyproject.toml`).
 - Lancer : `.venv/bin/python -m pytest -v`.
 - **Tests headless** : aucun test ne doit exiger un `QApplication` ni un affichage —
-  tester la logique pure (chargement de configuration, comparaison de versions, parsing) ;
-  mocker le réseau et les threads Qt.
-- Tout nouveau module de mise à jour s'accompagne de tests sur sa logique pure (hors
-  exécution réelle d'installation).
+  tester la logique pure (parsing des manifests, comparaison de versions, actions sur
+  fichiers via `tmp_path`, catalogue factice de `tests/conftest.py`) ; mocker le réseau
+  SMB, les commandes de détection et les threads Qt (doublures du socle, voir
+  `tests/test_engine.py`).
+- Toute évolution du moteur s'accompagne de tests sur sa logique pure (hors accès réseau
+  réel).
 
 ## 🌿 Conventions Git
 - **Commits** : Conventional Commits avec description en français — `feat:`, `fix:`,
-  `docs:`, `refactor:`, `test:`, `chore:` (ex. : `feat: ajoute le module de mise à jour k9s`).
+  `docs:`, `refactor:`, `test:`, `chore:` (ex. : `feat: ajoute l'action decompress au moteur`).
   Titre à l'impératif, court (< 72 caractères).
 - **Branches** : développement sur `main` pour le travail courant ; branches
   `feat/<sujet>` ou `fix/<sujet>` pour les changements de portée plus large.
@@ -121,7 +133,8 @@ Avant de proposer une solution, s'assurer que :
 1. L'interaction UI -> Logique passe par l'EventBus.
 2. La logique lourde ne s'exécute pas dans le thread principal (GUI thread).
 3. L'erreur potentielle est redirigée vers l'ErrorHandler.
-4. Le module créé respecte l'interface de `BaseModule`.
+4. Les nouveaux YAML du catalogue respectent le schéma strict de `engine/models.py`
+   (voir `docs/moteur_mise_a_jour.md`).
 5. `ruff check .`, `ruff format --check .` et `pytest` passent.
 
 ## 📝 Consignes de Modification

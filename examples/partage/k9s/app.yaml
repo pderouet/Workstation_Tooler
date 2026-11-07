@@ -1,0 +1,7 @@
+application: k9s
+display_name: K9s
+enabled: true
+version_detection:
+  binary: k9s
+  args: ["version", "--short"]
+  pattern: '(v[0-9.]+)'
