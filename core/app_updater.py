@@ -5,9 +5,13 @@ projet) à la dernière version disponible sur la forge source, puis déclenche
 la mise à jour via le script autonome ``updater.py`` (voir
 ``docs/maj_application.md``).
 
-Deux fournisseurs sont supportés (``forge.provider`` de ``settings.yaml``) :
-    - ``github`` (défaut) : ``git fetch`` + ``git show`` dans le clone local —
-      réutilise les credentials Git du poste, aucun token à gérer ;
+Toute la chaîne repose sur de simples appels HTTP à la forge — aucune commande
+Git n'est exécutée. Deux fournisseurs sont supportés (``forge.provider`` de
+``settings.yaml``) :
+    - ``github`` (défaut) : fichier brut ``version.txt`` via
+      ``raw.githubusercontent.com`` (dépôt public) et archive de la branche via
+      l'API tarball ; jeton optionnel ``WORKSTATION_TOOLER_GITHUB_TOKEN`` si le
+      dépôt redevient privé ;
     - ``gitlab`` : API v4 en lecture (ID de projet + branche + token en
       lecture seule, voir :data:`GITLAB_READ_TOKEN`).
 
@@ -41,25 +45,78 @@ UPDATER_SCRIPT_NAME = "updater.py"
 #: Format de version attendu dans ``version.txt`` (ex. ``0.1.3``).
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
-#: Délais maximaux des commandes Git et des requêtes HTTP (secondes).
-GIT_TIMEOUT_SECONDS = 30
+#: Délai maximal des requêtes HTTP (secondes).
 HTTP_TIMEOUT_SECONDS = 15
 
 #: Token d'accès GitLab en LECTURE SEULE utilisé pour interroger la version
-#: distante et accompagner le ``git fetch`` de l'updater.
+#: distante et télécharger l'archive de mise à jour.
 #:
 #: DÉROGATION ASSUMÉE à la règle « aucun secret en dur » d'AGENTS.md :
 #: décision du propriétaire du projet, documentée dans ``docs/maj_application.md``.
 #: La porter atteinte uniquement à un jeton de rôle minimal (lecture de
 #: l'API et du dépôt — ex. rôle « Reporter » avec scope ``read_api`` /
-#: ``read_repository``). Renseigner la valeur ci-dessous :
+#: ``read_repository``).
+#:
+#: ATTENTION : le dépôt étant PUBLIC, toute valeur renseignée ici sera exposée
+#: au monde entier au premier commit. Lui préférer la variable d'environnement
+#: ``WORKSTATION_TOOLER_GITLAB_TOKEN`` (voir :func:`gitlab_read_token`) et
+#: laisser cette constante vide.
 GITLAB_READ_TOKEN = ""
 
-#: Exécuteur de commandes Git (injectable pour les tests).
-CommandRunner = Callable[..., subprocess.CompletedProcess]
+#: Variable d'environnement prioritaire sur :data:`GITLAB_READ_TOKEN`
+#: (recommandée : le dépôt étant public, un token committé serait exposé).
+GITLAB_TOKEN_ENV_VAR = "WORKSTATION_TOOLER_GITLAB_TOKEN"
+
+#: Variable d'environnement optionnelle : jeton GitHub si le dépôt redevient
+#: privé (inutile tant que le dépôt est public).
+GITHUB_TOKEN_ENV_VAR = "WORKSTATION_TOOLER_GITHUB_TOKEN"
 
 #: Ouvreur d'URL (injectable pour les tests).
 UrlOpener = Callable[..., Any]
+
+
+def gitlab_read_token() -> str:
+    """Retourne le token GitLab en lecture : variable d'environnement prioritaire.
+
+    Returns:
+        La valeur de ``WORKSTATION_TOOLER_GITLAB_TOKEN``, sinon la constante
+        :data:`GITLAB_READ_TOKEN` (chaîne vide si aucune source n'est renseignée).
+    """
+    return os.environ.get(GITLAB_TOKEN_ENV_VAR, "").strip() or GITLAB_READ_TOKEN
+
+
+def github_read_token() -> str:
+    """Retourne le jeton GitHub optionnel (chaîne vide si le dépôt est public).
+
+    Returns:
+        La valeur de ``WORKSTATION_TOOLER_GITHUB_TOKEN`` si renseignée.
+    """
+    return os.environ.get(GITHUB_TOKEN_ENV_VAR, "").strip()
+
+
+def http_get_text(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = HTTP_TIMEOUT_SECONDS,
+    opener: UrlOpener = urllib.request.urlopen,
+) -> str:
+    """Télécharge une ressource texte par HTTP GET (stdlib ``urllib``).
+
+    Args:
+        url: URL de la ressource.
+        headers: En-têtes additionnels (authentification, etc.).
+        timeout: Délai maximal de la requête (secondes).
+        opener: Ouvreur d'URL (injectable pour les tests).
+
+    Returns:
+        Le corps de la réponse, décodé en UTF-8.
+
+    Raises:
+        OSError: En cas d'erreur HTTP/réseau (``URLError``/``HTTPError``).
+    """
+    request = urllib.request.Request(url, headers=headers or {})
+    with opener(request, timeout=timeout) as response:
+        return response.read().decode("utf-8")
 
 
 def read_current_version(version_file: Path) -> Optional[str]:
@@ -79,45 +136,52 @@ def read_current_version(version_file: Path) -> Optional[str]:
     return content if VERSION_PATTERN.match(content) else None
 
 
-def fetch_latest_version_github(
-    app_dir: Path, branch: str, runner: CommandRunner = subprocess.run
-) -> str:
-    """Interroge la version distante via le clone Git local (fournisseur GitHub).
-
-    Lance ``git fetch origin <branche>`` puis lit ``version.txt`` tel qu'il
-    existe sur ``FETCH_HEAD`` : aucune API ni token, les credentials du clone
-    suffisent (dépôt privé compris).
+def _validated_version(body: str) -> str:
+    """Valide un contenu ``version.txt`` distant.
 
     Args:
-        app_dir: Racine du clone Git de l'application.
-        branch: Branche distante suivie (ex. ``main``).
-        runner: Exécuteur de commandes (injectable pour les tests).
+        body: Corps téléchargé.
+
+    Returns:
+        La version (``x.y.z``).
+
+    Raises:
+        ValueError: Si le contenu est mal formé.
+    """
+    version = body.strip()
+    if not VERSION_PATTERN.match(version):
+        raise ValueError(f"version.txt distant invalide : {version!r}")
+    return version
+
+
+def fetch_latest_version_github(
+    repository: str,
+    branch: str,
+    token: str = "",
+    opener: UrlOpener = urllib.request.urlopen,
+    timeout: int = HTTP_TIMEOUT_SECONDS,
+) -> str:
+    """Interroge la version distante via le fichier brut GitHub (HTTP).
+
+    Args:
+        repository: Dépôt GitHub au format ``propriétaire/dépôt``.
+        branch: Branche suivie (ex. ``main``).
+        token: Jeton optionnel (dépôt privé) envoyé en ``Authorization: Bearer``.
+        opener: Ouvreur d'URL (injectable pour les tests).
+        timeout: Délai maximal de la requête (secondes).
 
     Returns:
         La version distante (``x.y.z``).
 
     Raises:
-        subprocess.SubprocessError: Si une commande Git échoue ou expire.
-        OSError: Si Git est indisponible.
-        ValueError: Si le contenu distant est absent ou mal formé.
+        ValueError: Si le dépôt est mal formé ou le contenu distant invalide.
+        OSError: En cas d'erreur HTTP/réseau.
     """
-    runner(
-        ["git", "-C", str(app_dir), "fetch", "--quiet", "origin", branch],
-        capture_output=True,
-        timeout=GIT_TIMEOUT_SECONDS,
-        check=True,
-    )
-    completed = runner(
-        ["git", "-C", str(app_dir), "show", f"FETCH_HEAD:{VERSION_FILE_NAME}"],
-        capture_output=True,
-        text=True,
-        timeout=GIT_TIMEOUT_SECONDS,
-        check=True,
-    )
-    version = completed.stdout.strip()
-    if not VERSION_PATTERN.match(version):
-        raise ValueError(f"version.txt distant invalide : {version!r}")
-    return version
+    if "/" not in repository:
+        raise ValueError(f"dépôt GitHub mal formé : {repository!r} (attendu 'propriétaire/dépôt').")
+    url = f"https://raw.githubusercontent.com/{repository}/{branch}/{VERSION_FILE_NAME}"
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return _validated_version(http_get_text(url, headers=headers, timeout=timeout, opener=opener))
 
 
 def fetch_latest_version_gitlab(
@@ -148,7 +212,10 @@ def fetch_latest_version_gitlab(
     if not project_id:
         raise ValueError("configuration GitLab incomplète : 'forge.gitlab.project_id' vide.")
     if not token:
-        raise ValueError("configuration GitLab incomplète : GITLAB_READ_TOKEN non renseigné.")
+        raise ValueError(
+            "configuration GitLab incomplète : token absent "
+            f"(constante GITLAB_READ_TOKEN ou variable {GITLAB_TOKEN_ENV_VAR})."
+        )
 
     from urllib.parse import quote
 
@@ -156,14 +223,42 @@ def fetch_latest_version_gitlab(
         f"{base_url.rstrip('/')}/api/v4/projects/{project_id}"
         f"/repository/files/{VERSION_FILE_NAME}/raw?ref={quote(branch, safe='')}"
     )
-    request = urllib.request.Request(url, headers={"PRIVATE-TOKEN": token})
-    with opener(request, timeout=timeout) as response:
-        body = response.read().decode("utf-8")
+    return _validated_version(
+        http_get_text(url, headers={"PRIVATE-TOKEN": token}, timeout=timeout, opener=opener)
+    )
 
-    version = body.strip()
-    if not VERSION_PATTERN.match(version):
-        raise ValueError(f"version.txt distant invalide : {version!r}")
-    return version
+
+def github_archive_url(repository: str, branch: str) -> str:
+    """Construit l'URL d'archive tarball d'une branche GitHub.
+
+    L'API renvoie une redirection signée vers ``codeload`` : elle fonctionne
+    anonymement (dépôt public) comme avec le jeton GitHub (dépôt privé).
+
+    Args:
+        repository: Dépôt au format ``propriétaire/dépôt``.
+        branch: Branche à archiver.
+
+    Returns:
+        L'URL de l'archive ``tar.gz``.
+    """
+    return f"https://api.github.com/repos/{repository}/tarball/{branch}"
+
+
+def gitlab_archive_url(base_url: str, project_id: str, branch: str) -> str:
+    """Construit l'URL d'archive tar.gz d'une branche GitLab (API v4).
+
+    Args:
+        base_url: Racine de l'instance GitLab.
+        project_id: Identifiant numérique du projet.
+        branch: Branche à archiver.
+
+    Returns:
+        L'URL de l'archive (le jeton, lui, passe par l'en-tête ``PRIVATE-TOKEN``).
+    """
+    return (
+        f"{base_url.rstrip('/')}/api/v4/projects/{project_id}"
+        f"/repository/archive.tar.gz?sha={branch}"
+    )
 
 
 class AppUpdater(metaclass=SingletonMeta):
@@ -198,8 +293,8 @@ class AppUpdater(metaclass=SingletonMeta):
     def get_latest_version(self) -> Optional[str]:
         """Retourne la dernière version disponible sur la forge configurée.
 
-        Toute défaillance (réseau, Git, configuration) est journalisée en
-        warning puis dégradée en ``None`` (aucune proposition de mise à jour),
+        Toute défaillance (réseau, configuration) est journalisée en warning
+        puis dégradée en ``None`` (aucune proposition de mise à jour),
         conformément au pattern des autres vérifications.
 
         Returns:
@@ -212,11 +307,14 @@ class AppUpdater(metaclass=SingletonMeta):
                     base_url=str(self._config.get_setting("forge.gitlab.base_url", "")),
                     project_id=str(self._config.get_setting("forge.gitlab.project_id", "")),
                     branch=str(self._config.get_setting("forge.gitlab.branch", default="main")),
-                    token=GITLAB_READ_TOKEN,
+                    token=gitlab_read_token(),
                 )
-            branch = str(self._config.get_setting("forge.github.branch", default="main"))
-            return fetch_latest_version_github(PROJECT_ROOT, branch)
-        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            return fetch_latest_version_github(
+                repository=str(self._config.get_setting("github.repository", "")),
+                branch=str(self._config.get_setting("forge.github.branch", default="main")),
+                token=github_read_token(),
+            )
+        except (ValueError, OSError) as exc:
             self._logger.warning(f"[app] version distante indéterminée (forge={provider}) : {exc}")
             return None
 
@@ -266,6 +364,29 @@ class AppUpdater(metaclass=SingletonMeta):
     # Mise à jour effective : lancement de updater.py.
     # ------------------------------------------------------------------
 
+    def _archive_url(self, provider: str) -> str:
+        """Construit l'URL d'archive de la branche suivie selon le fournisseur.
+
+        Args:
+            provider: Fournisseur de la forge (``github`` ou ``gitlab``).
+
+        Returns:
+            L'URL (non sensible : aucun jeton n'y figure).
+
+        Raises:
+            ValueError: Si la configuration du fournisseur est incomplète.
+        """
+        if provider == "gitlab":
+            return gitlab_archive_url(
+                base_url=str(self._config.get_setting("forge.gitlab.base_url", "")),
+                project_id=str(self._config.get_setting("forge.gitlab.project_id", "")),
+                branch=str(self._config.get_setting("forge.gitlab.branch", default="main")),
+            )
+        return github_archive_url(
+            repository=str(self._config.get_setting("github.repository", "")),
+            branch=str(self._config.get_setting("forge.github.branch", default="main")),
+        )
+
     def perform_update(
         self,
         progress_callback: Optional[Callable[[int], None]] = None,
@@ -274,9 +395,10 @@ class AppUpdater(metaclass=SingletonMeta):
         """Lance le script autonome ``updater.py`` en lui confiant l'application.
 
         Le script reçoit le PID du processus principal (celui de l'application
-        Qt, threads compris) et attend son arrêt avant de déployer la nouvelle
-        version par Git. L'application doit ensuite se fermer proprement :
-        c'est l'UI qui déclenche ``QApplication.quit()`` au retour de succès.
+        Qt, threads compris) et l'URL d'archive de la nouvelle version ; il
+        attend l'arrêt de l'application avant de télécharger et déployer.
+        L'application doit ensuite se fermer proprement : c'est l'UI qui
+        déclenche ``QApplication.quit()`` au retour de succès.
 
         Args:
             progress_callback: Fonction optionnelle appelée avec un
@@ -288,12 +410,14 @@ class AppUpdater(metaclass=SingletonMeta):
 
         Raises:
             FileNotFoundError: Si ``updater.py`` est absent de la racine.
+            ValueError: Si la configuration de la forge est incomplète.
             OSError: Si le processus n'a pas pu être lancé.
         """
         updater_path = PROJECT_ROOT / UPDATER_SCRIPT_NAME
         if not updater_path.exists():
             raise FileNotFoundError(f"Script de mise à jour introuvable : {updater_path}")
 
+        provider = str(self._config.get_setting("forge.provider", default="github")).lower()
         auto_restart = bool(self._config.get_setting("update.app_auto_restart", default=True))
         arguments = [
             sys.executable,
@@ -302,9 +426,9 @@ class AppUpdater(metaclass=SingletonMeta):
             "--app-dir",
             str(PROJECT_ROOT),
             "--provider",
-            str(self._config.get_setting("forge.provider", default="github")).lower(),
-            "--branch",
-            str(self._config.get_setting("forge.github.branch", default="main")),
+            provider,
+            "--archive-url",
+            self._archive_url(provider),
         ]
         if not auto_restart:
             arguments.append("--no-relaunch")

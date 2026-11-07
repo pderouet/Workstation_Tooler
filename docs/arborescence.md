@@ -10,7 +10,7 @@
 ├── README.md                           # Présentation, installation, lancement
 ├── pyproject.toml                      # Configuration ruff (lint/format) et pytest
 ├── version.txt                         # Version courante (source de vérité, incrémentée par la CI)
-├── updater.py                          # Script autonome de mise à jour de l'application (voir docs/maj_application.md)
+├── updater.py                          # Script autonome de mise à jour de l'application, 100 % HTTP (voir docs/maj_application.md)
 ├── config/
 │   └── settings.yaml                   # Configuration générale (logging, scheduler, repository.uri, github, ui)
 ├── core/

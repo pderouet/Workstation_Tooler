@@ -1,13 +1,11 @@
-"""Tests headless de l'AppUpdater : versions, fournisseurs, report d'exécution.
+"""Tests headless de l'AppUpdater : versions, forges HTTP, report d'exécution.
 
-Aucun accès réseau ni Git réel : les exécuteurs de commandes et l'ouvreur
-d'URL sont remplacés par des doublures.
+Aucun accès réseau : les ouvreur d'URL sont remplacés par des doublures.
 """
 
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,27 +14,49 @@ import pytest
 
 from core import app_updater as app_updater_module
 from core.app_updater import (
+    GITLAB_READ_TOKEN,
     AppUpdater,
     fetch_latest_version_github,
     fetch_latest_version_gitlab,
+    github_archive_url,
+    github_read_token,
+    gitlab_archive_url,
+    gitlab_read_token,
     read_current_version,
 )
 
 
 class FakeResponse:
-    """Réponse HTTP factice (gestionnaire de contexte + lecture)."""
+    """Réponse HTTP factice : source binaire avec fin de fichier (read par blocs)."""
 
     def __init__(self, body: bytes) -> None:
-        self._body = body
+        self._remaining = body
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            data, self._remaining = self._remaining, b""
+        else:
+            data, self._remaining = self._remaining[:size], self._remaining[size:]
+        return data
 
     def __enter__(self) -> "FakeResponse":
         return self
 
     def __exit__(self, *_exc: Any) -> bool:
         return False
+
+
+def capture_opener(body: bytes) -> Tuple[Any, Dict[str, Any]]:
+    """Construit un ouvreur factice retournant ``body`` et capturant la requête."""
+    captured: Dict[str, Any] = {}
+
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        captured["url"] = request.full_url
+        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+        captured["timeout"] = timeout
+        return FakeResponse(body)
+
+    return opener, captured
 
 
 def make_recording_bus() -> Any:
@@ -94,44 +114,44 @@ def test_read_current_version_absent(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------
-# Fournisseur GitHub (git fetch + git show).
+# Fournisseur GitHub (HTTP, fichier brut raw).
 # ----------------------------------------------------------------------
 
 
-def test_fetch_latest_version_github_commandes_et_resultat() -> None:
-    """Le fournisseur GitHub enchaîne fetch puis show et valide la version."""
-    commands: List[List[str]] = []
-
-    def fake_runner(command: List[str], **_kwargs: Any) -> subprocess.CompletedProcess:
-        commands.append(list(command))
-        return subprocess.CompletedProcess(args=command, returncode=0, stdout="0.4.7\n")
-
-    version = fetch_latest_version_github(Path("/opt/app"), "main", runner=fake_runner)
+def test_fetch_latest_version_github_requete_anonyme() -> None:
+    """L'URL vise le fichier brut de la branche, sans authentification (dépôt public)."""
+    opener, captured = capture_opener(b"0.4.7\n")
+    version = fetch_latest_version_github("pderouet/Workstation_Tooler", "main", opener=opener)
 
     assert version == "0.4.7"
-    assert commands[0][:4] == ["git", "-C", "/opt/app", "fetch"]
-    assert commands[0][-1] == "main"
-    assert "FETCH_HEAD:version.txt" in commands[1]
+    assert captured["url"] == (
+        "https://raw.githubusercontent.com/pderouet/Workstation_Tooler/main/version.txt"
+    )
+    assert "authorization" not in captured["headers"]
+
+
+def test_fetch_latest_version_github_avec_token_prive() -> None:
+    """Un jeton fourni part en Authorization: Bearer (dépôt redevenu privé)."""
+    opener, captured = capture_opener(b"0.4.8\n")
+    version = fetch_latest_version_github(
+        "pderouet/Workstation_Tooler", "main", token="jeton-gh", opener=opener
+    )
+
+    assert version == "0.4.8"
+    assert captured["headers"].get("authorization") == "Bearer jeton-gh"
 
 
 def test_fetch_latest_version_github_contenu_invalide() -> None:
     """Un version.txt distant mal formé lève une ValueError explicite."""
-
-    def fake_runner(_command: List[str], **_kwargs: Any) -> subprocess.CompletedProcess:
-        return subprocess.CompletedProcess(args=[], returncode=0, stdout="pas-une-version")
-
+    opener, _captured = capture_opener(b"pas-une-version")
     with pytest.raises(ValueError, match="invalide"):
-        fetch_latest_version_github(Path("/opt/app"), "main", runner=fake_runner)
+        fetch_latest_version_github("pderouet/Workstation_Tooler", "main", opener=opener)
 
 
-def test_fetch_latest_version_github_erreur_git_propagee() -> None:
-    """Une erreur Git remonte à l'appelant (journalisation par AppUpdater)."""
-
-    def fake_runner(_command: List[str], **_kwargs: Any) -> subprocess.CompletedProcess:
-        raise subprocess.CalledProcessError(returncode=128, cmd="git")
-
-    with pytest.raises(subprocess.CalledProcessError):
-        fetch_latest_version_github(Path("/opt/app"), "main", runner=fake_runner)
+def test_fetch_latest_version_github_depot_mal_forme() -> None:
+    """Un dépôt sans « propriétaire/dépôt » est refusé avant toute requête."""
+    with pytest.raises(ValueError, match="dépôt GitHub mal formé"):
+        fetch_latest_version_github("workstation_tooler", "main")
 
 
 # ----------------------------------------------------------------------
@@ -141,16 +161,9 @@ def test_fetch_latest_version_github_erreur_git_propagee() -> None:
 
 def test_fetch_latest_version_gitlab_requete_et_resultat() -> None:
     """La requête vise l'API raw du fichier avec ref=branche et PRIVATE-TOKEN."""
-    captured: Dict[str, Any] = {}
-
-    def fake_opener(request: Any, timeout: int) -> FakeResponse:
-        captured["url"] = request.full_url
-        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
-        captured["timeout"] = timeout
-        return FakeResponse(b"1.0.3\n")
-
+    opener, captured = capture_opener(b"1.0.3\n")
     version = fetch_latest_version_gitlab(
-        "https://gitlab.example.com/", "42", "release/1.x", "tok", opener=fake_opener
+        "https://gitlab.example.com/", "42", "release/1.x", "tok", opener=opener
     )
 
     assert version == "1.0.3"
@@ -184,6 +197,48 @@ def test_fetch_latest_version_gitlab_configuration_incomplete(project_id: str, t
             token,
             opener=lambda _r, timeout=10: FakeResponse(b"1.0.0"),
         )
+
+
+# ----------------------------------------------------------------------
+# Jetons (variables d'environnement prioritaires).
+# ----------------------------------------------------------------------
+
+
+def test_gitlab_read_token_variable_environnement_prioritaire(monkeypatch) -> None:
+    """La variable d'environnement prime sur la constante (dépôt public)."""
+    monkeypatch.delenv("WORKSTATION_TOOLER_GITLAB_TOKEN", raising=False)
+    assert gitlab_read_token() == GITLAB_READ_TOKEN  # repli sur la constante.
+
+    monkeypatch.setenv("WORKSTATION_TOOLER_GITLAB_TOKEN", "jeton-env")
+    assert gitlab_read_token() == "jeton-env"
+
+
+def test_github_read_token_optionnel(monkeypatch) -> None:
+    """Le jeton GitHub est purement optionnel (dépôt public par défaut)."""
+    monkeypatch.delenv("WORKSTATION_TOOLER_GITHUB_TOKEN", raising=False)
+    assert github_read_token() == ""
+
+    monkeypatch.setenv("WORKSTATION_TOOLER_GITHUB_TOKEN", "jeton-gh")
+    assert github_read_token() == "jeton-gh"
+
+
+# ----------------------------------------------------------------------
+# URL d'archives de déploiement.
+# ----------------------------------------------------------------------
+
+
+def test_url_archive_github() -> None:
+    """L'archive GitHub passe par l'API tarball de la branche."""
+    assert github_archive_url("pderouet/Workstation_Tooler", "main") == (
+        "https://api.github.com/repos/pderouet/Workstation_Tooler/tarball/main"
+    )
+
+
+def test_url_archive_gitlab_sans_jet_dans_l_url() -> None:
+    """L'archive GitLab passe par l'API v4 : aucun jeton dans l'URL."""
+    assert gitlab_archive_url("https://gitlab.example.com/", "42", "dev") == (
+        "https://gitlab.example.com/api/v4/projects/42/repository/archive.tar.gz?sha=dev"
+    )
 
 
 # ----------------------------------------------------------------------
@@ -258,66 +313,85 @@ def test_le_report_disparait_au_redemarrage(monkeypatch) -> None:
 # perform_update : lancement de updater.py.
 # ----------------------------------------------------------------------
 
+GITHUB_SETTINGS: Dict[str, Any] = {
+    "github": {"repository": "pderouet/Workstation_Tooler"},
+    "forge": {"provider": "github", "github": {"branch": "main"}},
+}
+GITLAB_SETTINGS: Dict[str, Any] = {
+    "github": {"repository": "pderouet/Workstation_Tooler"},
+    "forge": {
+        "provider": "gitlab",
+        "gitlab": {"base_url": "https://gitlab.example.com", "project_id": "42", "branch": "dev"},
+    },
+}
 
-def test_perform_update_lance_updater_avec_pid_et_options(monkeypatch, tmp_path: Path) -> None:
-    """L'updater est lancé détaché avec le PID et les options de déploiement."""
+
+def prepare_launcher(
+    monkeypatch, tmp_path: Path, settings: Dict[str, Any]
+) -> Tuple[AppUpdater, List[Dict[str, Any]], Any]:
+    """Prépare un environnement de lancement factice (updater.py + config + spawn)."""
     (tmp_path / "updater.py").write_text("# script factice\n", encoding="utf-8")
     monkeypatch.setattr(app_updater_module, "PROJECT_ROOT", tmp_path)
+
     updater = AppUpdater()
-    monkeypatch.setattr(
-        updater,
-        "_config",
-        FakeConfig({"forge": {"provider": "github", "github": {"branch": "main"}}}),
-    )
+    monkeypatch.setattr(updater, "_config", FakeConfig(settings))
+
     spawned: List[Dict[str, Any]] = []
 
     def fake_spawn(arguments: List[str], **kwargs: Any) -> None:
         spawned.append({"args": list(arguments), "kwargs": kwargs})
 
-    assert updater.perform_update(spawn=fake_spawn) is True
+    return updater, spawned, fake_spawn
 
-    args = spawned[0]["args"]
+
+def run_fake_update(monkeypatch, tmp_path: Path, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Lance perform_update avec un spawn factice et retourne la capture du lancement."""
+    updater, spawned, fake_spawn = prepare_launcher(monkeypatch, tmp_path, settings)
+    assert updater.perform_update(spawn=fake_spawn) is True
+    return spawned[0]
+
+
+def test_perform_update_lance_updater_avec_url_archive_github(monkeypatch, tmp_path: Path) -> None:
+    """L'updater reçoit le PID et l'URL d'archive GitHub (aucun jeton en argument)."""
+    launcher = run_fake_update(monkeypatch, tmp_path, GITHUB_SETTINGS)
+    args = launcher["args"]
+
     assert args[0] == sys.executable
     assert str(os.getpid()) in args
     assert "--app-dir" in args and str(tmp_path) in args
     assert "--provider" in args and "github" in args
-    assert "--branch" in args and "main" in args
+    url = args[args.index("--archive-url") + 1]
+    assert url == "https://api.github.com/repos/pderouet/Workstation_Tooler/tarball/main"
     assert "--no-relaunch" not in args
-    # Détachement selon la plateforme.
     if os.name == "nt":
-        assert spawned[0]["kwargs"]["creationflags"]
+        assert launcher["kwargs"]["creationflags"]
     else:
-        assert spawned[0]["kwargs"]["start_new_session"] is True
+        assert launcher["kwargs"]["start_new_session"] is True
+
+
+def test_perform_update_url_archive_gitlab(monkeypatch, tmp_path: Path) -> None:
+    """Le fournisseur GitLab produit l'URL d'archive API v4 correspondante."""
+    launcher = run_fake_update(monkeypatch, tmp_path, GITLAB_SETTINGS)
+    args = launcher["args"]
+    url = args[args.index("--archive-url") + 1]
+    assert url == (
+        "https://gitlab.example.com/api/v4/projects/42/repository/archive.tar.gz?sha=dev"
+    )
+    assert "gitlab" in args
 
 
 def test_perform_update_sans_relaunch_quand_desactive(monkeypatch, tmp_path: Path) -> None:
     """update.app_auto_restart: false ajoute --no-relaunch."""
-    (tmp_path / "updater.py").write_text("# script factice\n", encoding="utf-8")
-    monkeypatch.setattr(app_updater_module, "PROJECT_ROOT", tmp_path)
-    updater = AppUpdater()
-    monkeypatch.setattr(
-        updater,
-        "_config",
-        FakeConfig(
-            {
-                "forge": {"provider": "gitlab", "gitlab": {"branch": "dev"}, "github": {}},
-                "update": {"app_auto_restart": False},
-            }
-        ),
-    )
-    spawned: List[Dict[str, Any]] = []
-
-    def fake_spawn(arguments: List[str], **kwargs: Any) -> None:
-        spawned.append({"args": list(arguments), "kwargs": kwargs})
-
-    assert updater.perform_update(spawn=fake_spawn) is True
-    assert "--no-relaunch" in spawned[0]["args"]
+    settings = dict(GITHUB_SETTINGS)
+    settings["update"] = {"app_auto_restart": False}
+    launcher = run_fake_update(monkeypatch, tmp_path, settings)
+    assert "--no-relaunch" in launcher["args"]
 
 
 def test_perform_update_script_absent(monkeypatch, tmp_path: Path) -> None:
     """L'absence d'updater.py lève une erreur explicite (routée vers ErrorHandler)."""
     monkeypatch.setattr(app_updater_module, "PROJECT_ROOT", tmp_path)
     updater = AppUpdater()
-    monkeypatch.setattr(updater, "_config", FakeConfig({}))
+    monkeypatch.setattr(updater, "_config", FakeConfig(GITHUB_SETTINGS))
     with pytest.raises(FileNotFoundError, match="updater.py"):
         updater.perform_update(spawn=lambda *_a, **_k: None)

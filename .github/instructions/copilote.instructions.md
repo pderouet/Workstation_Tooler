@@ -17,7 +17,7 @@ L'application repose sur plusieurs Singletons obligatoires. Tout nouveau composa
 - **ConfigLoader** (`core/config_loader.py`) : Charge `config/settings.yaml` au démarrage (clés à points).
 - **ErrorHandler** (`core/error_handler.py`) : Gestion centralisée des erreurs.
 - **Scheduler** (`core/scheduler.py`) : Planifie les vérifications récurrentes via `QTimer`, en déléguant l'exécution au `ThreadManager`.
-- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même — version locale/distante (`version.txt`, forge GitHub ou GitLab selon `forge.provider`), notification à trois choix et lancement du script autonome `updater.py` (voir `docs/maj_application.md`).
+- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même — version locale/distante (`version.txt`) et déploiement exclusivement par appels HTTP à la forge (GitHub ou GitLab selon `forge.provider`), notification à trois choix et lancement du script autonome `updater.py` (voir `docs/maj_application.md`).
 
 ### 2. Gestion des Erreurs
 - **Interdiction** d'utiliser des blocs `try/except` génériques sans remontée.
