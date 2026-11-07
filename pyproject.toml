@@ -1,0 +1,17 @@
+# Configuration des outils de développement du projet.
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+# Jeu de règles conservateur, aligné sur le style existant du projet :
+# le code utilise volontairement typing.Dict/Optional, les règles de
+# modernisation (UP) et les règles strictes (RUF, BLE, PYI) sont exclues.
+select = ["E4", "E7", "E9", "F", "W", "I"]
+
+[tool.ruff.format]
+# Style par défaut de ruff (proche de Black), aligné sur le style existant du projet.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

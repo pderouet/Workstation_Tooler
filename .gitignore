@@ -1,0 +1,23 @@
+# Bytecode Python
+__pycache__/
+*.py[cod]
+
+# Environnements virtuels
+.venv/
+venv/
+
+# Logs applicatifs (créés au premier lancement)
+logs/
+
+# Outils de développement
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Artefacts de session ZCode (plans, workflows locaux)
+.zcode/
+
+# Packaging
+dist/
+build/
+*.egg-info/

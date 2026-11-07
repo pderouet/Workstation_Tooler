@@ -1,0 +1,56 @@
+"""Singleton EventBus : canal de communication unique entre threads et UI.
+
+Toute information devant circuler entre la logique métier (exécutée dans
+des ``QThread`` via le ``ThreadManager``) et l'interface graphique doit
+impérativement transiter par ce bus de signaux PyQt (``pyqtSignal``), qui
+garantit une livraison thread-safe grâce au mécanisme de connexions
+Qt (``QueuedConnection`` automatique entre threads différents).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from PyQt6.QtCore import QObject, pyqtSignal
+
+
+class EventBus(QObject):
+    """Bus d'évènements applicatif unique, basé sur des signaux PyQt6.
+
+    Signaux exposés :
+        log_message(str, str): niveau, message — pour relayer un log vers l'UI.
+        error_occurred(str, str): titre, message — erreur à notifier à l'utilisateur.
+        module_status_changed(str, str): nom du module, nouveau statut.
+        update_progress(str, int): nom du module (ou ``"app"``), pourcentage de progression.
+        update_finished(str, bool, str): nom du module (ou ``"app"``), succès, message.
+        update_available(str, str, str): nom de la cible (``"app"`` ou module), version
+            courante, version disponible — émis par le ``Scheduler`` ou une vérification manuelle.
+        task_started(str): nom de la tâche de fond démarrée (ex. ``"module.install"``),
+            utilisé par l'UI pour refléter un état « en cours » (icône WIP).
+        task_finished(str): nom de la tâche de fond terminée, utilisé par l'UI pour
+            revenir à un état stable (icône OK/Info) une fois toutes les tâches closes.
+    """
+
+    log_message = pyqtSignal(str, str)
+    error_occurred = pyqtSignal(str, str)
+    module_status_changed = pyqtSignal(str, str)
+    update_progress = pyqtSignal(str, int)
+    update_finished = pyqtSignal(str, bool, str)
+    update_available = pyqtSignal(str, str, str)
+    task_started = pyqtSignal(str)
+    task_finished = pyqtSignal(str)
+
+    _instance: Optional["EventBus"] = None
+    _initialized: bool = False
+
+    def __new__(cls, *args: Any, **kwargs: Dict[str, Any]) -> "EventBus":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self) -> None:
+        """Initialise le ``QObject`` sous-jacent une seule fois (garde Singleton)."""
+        if EventBus._initialized:
+            return
+        super().__init__()
+        EventBus._initialized = True

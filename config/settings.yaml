@@ -1,0 +1,16 @@
+# Configuration générale de Workstation Tooler
+
+logging:
+  level: INFO        # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: logs/workstation_tooler.log
+
+update:
+  check_interval_minutes: 60          # Fréquence de vérification des mises à jour des modules.
+  app_check_interval_minutes: 240     # Fréquence de vérification de la mise à jour de l'application.
+  check_on_startup: true
+
+github:
+  repository: "pderouet/Workstation_Tooler"
+
+ui:
+  show_notifications: true
