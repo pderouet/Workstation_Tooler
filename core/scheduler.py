@@ -20,6 +20,7 @@ from PyQt6.QtCore import QObject, QTimer
 
 from core.app_updater import AppUpdater
 from core.config_loader import ConfigLoader
+from core.error_handler import ErrorHandler
 from core.logger import Logger
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ class Scheduler(QObject):
         self._logger = Logger()
         self._config = ConfigLoader()
         self._app_updater = AppUpdater()
+        self._error_handler = ErrorHandler()
         self._engine: Optional["UpdateEngine"] = None
 
         self._app_timer = QTimer(self)
@@ -109,8 +111,21 @@ class Scheduler(QObject):
         self._applications_timer.stop()
 
     def _check_app_update(self) -> None:
-        """Déclenche la vérification de mise à jour de l'application."""
-        self._app_updater.start_check_update(on_result=self._on_app_update_checked)
+        """Déclenche la vérification de mise à jour de l'application.
+
+        Une défaillance de la vérification périodique est journalisée (sans
+        notification intrusive pour l'utilisateur).
+        """
+        self._app_updater.start_check_update(
+            on_result=self._on_app_update_checked,
+            on_error=self._on_app_check_error,
+        )
+
+    def _on_app_check_error(self, exc: Exception) -> None:
+        """Journalise une erreur de vérification périodique (sans notification UI)."""
+        self._error_handler.handle_exception(
+            exc, context="app (vérification planifiée)", notify_ui=False
+        )
 
     def _on_app_update_checked(self, status: Dict[str, Any]) -> None:
         """Journalise le résultat de la vérification de mise à jour de l'application."""

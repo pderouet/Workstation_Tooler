@@ -17,7 +17,7 @@ L'application repose sur plusieurs Singletons obligatoires. Tout nouveau composa
 - **ConfigLoader** (`core/config_loader.py`) : Charge `config/settings.yaml` au démarrage (clés à points).
 - **ErrorHandler** (`core/error_handler.py`) : Gestion centralisée des erreurs.
 - **Scheduler** (`core/scheduler.py`) : Planifie les vérifications récurrentes via `QTimer`, en déléguant l'exécution au `ThreadManager`.
-- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même (dépôt GitHub).
+- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même — version locale/distante (`version.txt`, forge GitHub ou GitLab selon `forge.provider`), notification à trois choix et lancement du script autonome `updater.py` (voir `docs/maj_application.md`).
 
 ### 2. Gestion des Erreurs
 - **Interdiction** d'utiliser des blocs `try/except` génériques sans remontée.
@@ -44,7 +44,7 @@ Il n'y a plus de module Python par outil : un moteur unique (`engine/update_engi
 ### Développement
 - **Thread-Safety** : Toute opération I/O (réseau SMB, sous-processus, fichiers) doit être déléguée au `ThreadManager` via un `QThread` — les méthodes bloquantes du moteur ne s'appellent qu'à travers les wrappers `start_*`.
 - **Dépendances** : Ne pas ajouter de librairies tierces sans justification écrite.
-- **Secrets** : Aucun mot de passe ou clé API en dur (mot de passe SMB : variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`).
+- **Secrets** : Aucun mot de passe ou clé API en dur (mot de passe SMB : variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`). Exception assumée : le token GitLab en lecture seule `GITLAB_READ_TOKEN` vit dans `core/app_updater.py` (voir `docs/maj_application.md`).
 
 ## 🛠️ Workflow de Vérification
 Avant de proposer une solution, Copilot doit s'assurer que :

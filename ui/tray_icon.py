@@ -24,8 +24,9 @@ from __future__ import annotations
 
 from typing import Dict, List, Set
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon, QWidget
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon, QWidget
 
 from core.app_updater import AppUpdater
 from core.error_handler import ErrorHandler
@@ -144,29 +145,83 @@ class TrayIcon(QSystemTrayIcon):
     # ------------------------------------------------------------------
 
     def _on_update_app(self, *_args) -> None:
-        """Déclenche la vérification puis la mise à jour de l'application."""
+        """Vérifie la mise à jour de l'application puis propose le dialog à 3 choix.
 
-        def _after_check(status: dict) -> None:
-            if not status.get("update_available"):
-                self.showMessage(
-                    "Workstation Tooler",
-                    "Aucune mise à jour disponible.",
-                    QSystemTrayIcon.MessageIcon.Information,
-                )
-                return
-            self._app_updater.start_update(
-                on_result=lambda success: self._event_bus.update_finished.emit(
-                    "app",
-                    success,
-                    "Mise à jour de l'application terminée."
-                    if success
-                    else "Échec de la mise à jour.",
-                ),
-                on_error=lambda exc: self._error_handler.handle_exception(exc, context="app"),
-            )
-
+        Le déclenchement manuel ignore le report « Pas aujourd'hui » : il
+        permet de changer d'avis sans redémarrer l'application.
+        """
         self._app_updater.start_check_update(
-            on_result=_after_check,
+            on_result=self._on_manual_app_check_result,
+            on_error=lambda exc: self._error_handler.handle_exception(exc, context="app"),
+        )
+
+    def _on_manual_app_check_result(self, status: dict) -> None:
+        """Réagit au résultat d'une vérification manuelle de l'application."""
+        if not status.get("update_available"):
+            self.showMessage(
+                "Workstation Tooler",
+                "Aucune mise à jour disponible.",
+                QSystemTrayIcon.MessageIcon.Information,
+            )
+            return
+        self._prompt_app_update(
+            str(status.get("current_version") or "?"),
+            str(status.get("latest_version") or "?"),
+        )
+
+    def _prompt_app_update(self, current_version: str, latest_version: str) -> None:
+        """Demande à l'utilisateur quand appliquer la mise à jour de l'application.
+
+        Trois choix :
+            - « Oui » : déclenchement immédiat (updater puis fermeture propre) ;
+            - « Non » : la question sera reposée lors du prochain contrôle ;
+            - « Pas aujourd'hui » : plus aucune proposition pour cette exécution
+              du programme (au redémarrage, la question revient).
+        """
+        dialog = QMessageBox()
+        dialog.setWindowTitle("Workstation Tooler")
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setText(
+            "Une nouvelle version de Workstation Tooler est disponible.\n\n"
+            f"Version installée : {current_version}\n"
+            f"Nouvelle version : {latest_version}\n\n"
+            "Effectuer la mise à jour maintenant ?"
+        )
+        yes_button = dialog.addButton("Oui", QMessageBox.ButtonRole.YesRole)
+        dialog.addButton("Non", QMessageBox.ButtonRole.NoRole)
+        later_button = dialog.addButton("Pas aujourd'hui", QMessageBox.ButtonRole.ActionRole)
+        dialog.exec()
+
+        clicked = dialog.clickedButton()
+        if clicked is yes_button:
+            self._launch_app_update()
+        elif clicked is later_button:
+            self._app_updater.dismiss_update()
+        # « Non » : rien à faire, re-proposition au prochain contrôle.
+
+    def _launch_app_update(self) -> None:
+        """Lance l'updater en tâche de fond puis ferme proprement l'application.
+
+        L'updater attend l'arrêt du processus (PID transmis par l'AppUpdater)
+        avant de déployer la nouvelle version et de relancer l'application.
+        """
+
+        def _after_launch(success: bool) -> None:
+            self._event_bus.update_finished.emit(
+                "app",
+                success,
+                "Mise à jour lancée : fermeture de l'application…"
+                if success
+                else "Échec du lancement de la mise à jour.",
+            )
+            if success:
+                application = QApplication.instance()
+                if application is not None:
+                    # Laisse le temps de voir la notification avant l'arrêt.
+                    QTimer.singleShot(1500, application.quit)
+
+        self._app_updater.start_update(
+            on_result=_after_launch,
             on_error=lambda exc: self._error_handler.handle_exception(exc, context="app"),
         )
 
@@ -267,7 +322,14 @@ class TrayIcon(QSystemTrayIcon):
     def _on_update_available(
         self, target_name: str, current_version: str, latest_version: str
     ) -> None:
-        """Enregistre qu'une mise à jour est disponible et notifie l'utilisateur."""
+        """Enregistre qu'une mise à jour est disponible et notifie l'utilisateur.
+
+        Pour l'application elle-même, la notification est remplacée par le
+        dialog à trois choix (voir ``_prompt_app_update``).
+        """
+        if target_name == "app":
+            self._prompt_app_update(current_version, latest_version)
+            return
         self._pending_updates.add(target_name)
         self._refresh_icon()
         self.showMessage(
@@ -305,8 +367,6 @@ class TrayIcon(QSystemTrayIcon):
 
     def _on_quit(self) -> None:
         """Ferme proprement l'application."""
-        from PyQt6.QtWidgets import QApplication
-
         confirmation = QMessageBox.question(
             None,
             "Quitter",

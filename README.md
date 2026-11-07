@@ -12,6 +12,11 @@ chemin réseau unique** (partage SMB) : chaque application gérée est décrite 
 un `app.yaml` et chaque version par un `manifest.yaml` (actions `copy`,
 `decompress`, `ensure_content`). Ajouter un outil ne demande **aucun code
 local** — voir [`docs/moteur_mise_a_jour.md`](docs/moteur_mise_a_jour.md).
+L'application sait également **se mettre à jour elle-même** : la version
+(`version.txt`, incrémentée par la CI à chaque push) est comparée à la forge
+(GitHub ou GitLab), une notification à trois choix est proposée et le script
+autonome `updater.py` déploie la nouvelle version via Git puis relance
+l'application — voir [`docs/maj_application.md`](docs/maj_application.md).
 L'interface se limite à une icône SystemTray (`ui/`) dont l'état visuel reflète
 l'activité : vert (OK), bleu (information / mise à jour disponible), jaune
 (opération en cours).

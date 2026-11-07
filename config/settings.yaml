@@ -8,6 +8,18 @@ update:
   check_interval_minutes: 60          # Fréquence de vérification des mises à jour des applications.
   app_check_interval_minutes: 240     # Fréquence de vérification de la mise à jour de l'application.
   check_on_startup: true
+  app_auto_restart: true              # Relance de l'application après une mise à jour d'elle-même.
+
+# Forge source de l'application (version + déploiement de mise à jour de l'application).
+# Voir docs/maj_application.md ; le token GitLab, lui, vit dans core/app_updater.py.
+forge:
+  provider: github              # github | gitlab
+  github:
+    branch: main
+  gitlab:
+    base_url: "https://gitlab.com"   # URL de l'instance GitLab (auto-hébergée ou gitlab.com)
+    project_id: ""              # ID numérique du projet (page Projet > Détails)
+    branch: main
 
 # Chemin réseau unique hébergeant le catalogue des applications : un dossier par
 # application, contenant un app.yaml (métadonnées) et un dossier par version

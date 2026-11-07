@@ -24,3 +24,5 @@ build/
 
 #Prompts
 prompts/
+
+version.txt

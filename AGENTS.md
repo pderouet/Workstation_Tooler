@@ -29,8 +29,10 @@ nouveau composant technique doit vérifier s'il doit être un singleton :
   notification UI via l'EventBus).
 - **Scheduler** (`core/scheduler.py`) : Planifie les vérifications récurrentes (application
   et applications du catalogue) via `QTimer`, en déléguant l'exécution au `ThreadManager`.
-- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même (dépôt
-  GitHub configuré dans `config/settings.yaml`).
+- **AppUpdater** (`core/app_updater.py`) : Mise à jour de l'application elle-même —
+  version locale/distante (`version.txt`, forge GitHub ou GitLab selon `forge.provider`),
+  notification à trois choix et lancement du script autonome `updater.py`
+  (voir `docs/maj_application.md`).
 
 ### 2. Gestion des Erreurs
 - **Interdiction** d'utiliser des blocs `try/except` génériques sans remontée.
@@ -80,7 +82,9 @@ partage, **zéro code local**.
   dépendances runtime dans `requirements.txt`, dépendances de développement dans
   `requirements-dev.txt` (justification de `smbprotocol` en tête de `requirements.txt`).
 - **Secrets** : Aucun mot de passe ou clé API en dur — le mot de passe SMB éventuel passe
-  par la variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`.
+  par la variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`. **Exception assumée**
+  (décision du propriétaire du projet) : le token GitLab en lecture seule
+  `GITLAB_READ_TOKEN` vit dans `core/app_updater.py` (voir `docs/maj_application.md`).
 
 ## 🖥️ Environnement & Lancement
 - **Prérequis** : Python 3.14 ou supérieur.
