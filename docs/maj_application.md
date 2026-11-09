@@ -182,8 +182,11 @@ github:
 
 | Fichier | Contenu |
 |---|---|
+| `logs/workstation_tooler.log` | Journal applicatif de l'application (configuré par `logging.file`). |
 | `logs/updater.log` | Journal applicatif horodaté de l'updater (chaque étape). |
 | `logs/updater_console.log` | Sorties brutes (tracebacks non interceptés) de l'updater et de l'application relancée. |
+| `logs/crash.log` | **Pile native** (Python + C++) en cas de crash silencieux — indispensable sous `pythonw` où il n'y a ni console ni message. Écrit automatiquement au démarrage. |
+| `logs/error.log` | Exceptions Python non interceptées (elles aussi invisibles sous `pythonw`). |
 
 Points de contrôle en cas d'échec : section `forge.*` renseignée (provider,
 branche, ID projet, `github.repository`), token GitLab fourni si applicable,

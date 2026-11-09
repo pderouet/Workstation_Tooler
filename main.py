@@ -11,8 +11,10 @@ dynamiquement depuis le catalogue distant (voir ``docs/moteur_mise_a_jour.md``).
 
 from __future__ import annotations
 
+import faulthandler
 import logging
 import sys
+import traceback
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -40,6 +42,42 @@ LOG_LEVELS = {
 
 #: Dossier contenant les icônes du SystemTray (variantes OK/Info/WIP).
 ICONS_DIR = Path(__file__).resolve().parent / "resources" / "icons"
+
+#: Dossier des journaux (logs applicatifs, crashs natifs, erreurs non interceptées).
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+#: Poignée du fichier de crash — doit rester ouverte toute la vie du process
+#: pour que ``faulthandler`` puisse y écrire au moment du crash natif.
+_crash_log_file = None
+
+
+def install_crash_handlers() -> None:
+    """Capture les crashs silencieux dans ``logs/`` (indispensable sous pythonw).
+
+    Deux mécanismes complémentaires :
+        - ``faulthandler`` : dump de la pile Python **et native** dans
+          ``logs/crash.log`` en cas de crash C++/Qt (access violation, abort) —
+          ces crashs ne produisent aucun traceback Python ;
+        - ``sys.excepthook`` : exceptions Python non interceptées dans
+          ``logs/error.log`` — sous ``pythonw`` il n'y a pas de console pour
+          les afficher.
+
+    Ne doit jamais empêcher le démarrage : tout échec d'ouverture de fichier
+    est ignoré (repli sur le comportement par défaut).
+    """
+    global _crash_log_file
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        _crash_log_file = open(LOGS_DIR / "crash.log", "ab", buffering=0)
+        faulthandler.enable(_crash_log_file)
+
+        def _log_uncaught(exc_type, exc_value, exc_tb) -> None:
+            with open(LOGS_DIR / "error.log", "a", encoding="utf-8") as error_file:
+                traceback.print_exception(exc_type, exc_value, exc_tb, file=error_file)
+
+        sys.excepthook = _log_uncaught
+    except OSError:
+        pass  # journaux indisponibles : on démarre quand même, en console.
 
 
 def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
@@ -161,6 +199,8 @@ def main() -> int:
     Returns:
         Le code de sortie du processus.
     """
+    install_crash_handlers()
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
