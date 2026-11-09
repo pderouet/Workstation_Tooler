@@ -155,7 +155,7 @@ Couches indépendantes, chacune testable isolément :
 |---|---|---|
 | `models.py` | Dataclasses + parsing **strict** des YAML (schéma fermé, `yaml.safe_load`, clé inconnue = `ManifestError`) | — |
 | `version.py` | Tri naturel des versions, résolution « plus récente » | — |
-| `storage.py` | `StorageBackend` : SMB (session **paresseuse**, URI→UNC, invité sans signature) et local (`file://`) | backend via `build_storage_backend` |
+| `storage.py` | `StorageBackend` : SMB (session **paresseuse**, URI→UNC, authentification `session`/`credentials`/`guest`) et local (`file://`) | backend via `build_storage_backend` |
 | `repository.py` | Vue typée du catalogue (applications, versions, manifests, fichiers) | tout backend |
 | `catalog.py` | Chargement **résilient** : application invalide = ignorée et journalisée | — |
 | `detection.py` | Version installée depuis la déclaration `app.yaml` | exécuteur de commandes (`CommandOutput`) |

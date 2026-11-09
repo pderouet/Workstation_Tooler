@@ -84,8 +84,10 @@ partage, **zéro code local**.
 - **Dépendances** : Ne pas ajouter de librairies tierces sans justification écrite ;
   dépendances runtime dans `requirements.txt`, dépendances de développement dans
   `requirements-dev.txt` (justification de `smbprotocol` en tête de `requirements.txt`).
-- **Secrets** : Aucun mot de passe ou clé API en dur — le mot de passe SMB éventuel passe
-  par la variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`. **Exception assumée**
+- **Secrets** : Aucun mot de passe ou clé API en dur — l'accès SMB utilise par défaut la
+  session de l'utilisateur du poste (`repository.auth: session`, poste joint au domaine) ;
+  le mot de passe du mode `credentials` passe par la variable d'environnement
+  `WORKSTATION_TOOLER_SMB_PASSWORD`. **Exception assumée**
   (décision du propriétaire du projet) : le token GitLab en lecture seule peut vivre dans
   la constante `GITLAB_READ_TOKEN` de `core/app_updater.py` — mais le dépôt étant public,
   lui préférer la variable d'environnement `WORKSTATION_TOOLER_GITLAB_TOKEN` (prioritaire)

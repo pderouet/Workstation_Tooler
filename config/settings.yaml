@@ -25,10 +25,14 @@ forge:
 # Chemin réseau unique hébergeant le catalogue des applications : un dossier par
 # application, contenant un app.yaml (métadonnées) et un dossier par version
 # avec son manifest.yaml (fichiers et actions). Voir docs/moteur_mise_a_jour.md.
-# Aucun mot de passe ici : variable d'environnement WORKSTATION_TOOLER_SMB_PASSWORD.
+# Accès SMB avec la session de l'utilisateur du poste (poste joint au domaine
+# Active Directory, droits de lecture requis sur le partage). Modes : session
+# (défaut) | credentials (user + mot de passe en variable d'environnement
+# WORKSTATION_TOOLER_SMB_PASSWORD) | guest (partage public de dev/test).
 repository:
-  uri: "smb://localhost/Workstation_Tooler"   # file:///chemin/local accepté (dev, tests).
-  username: "guest"       # Partage public : compte mappé invité (map to guest côté serveur).
+  uri: "smb://SERVEUR.DOMAINE/Workstation_Tooler"   # À remplacer par le partage AD réel. file:///chemin/local accepté (dev, tests).
+  auth: "session"
+  username: ""           # Utilisé uniquement en modes credentials et guest.
   domain: ""
   timeout_seconds: 30
 

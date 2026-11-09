@@ -34,7 +34,8 @@ def test_get_setting_cle_absente_retourne_defaut() -> None:
 def test_get_setting_chemin_reseau_du_catalogue() -> None:
     """Le chemin réseau du catalogue est exposé par la configuration locale."""
     config = make_config_loader()
-    assert config.get_setting("repository.uri") == "smb://localhost/Workstation_Tooler"
+    assert config.get_setting("repository.uri") == "smb://SERVEUR.DOMAINE/Workstation_Tooler"
+    assert config.get_setting("repository.auth") == "session"
 
 
 def test_config_loader_est_un_singleton() -> None:

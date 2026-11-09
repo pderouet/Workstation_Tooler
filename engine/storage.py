@@ -26,6 +26,9 @@ SMB_PASSWORD_ENV_VAR = "WORKSTATION_TOOLER_SMB_PASSWORD"
 #: Délai de connexion SMB par défaut (secondes).
 DEFAULT_TIMEOUT_SECONDS = 30
 
+#: Modes d'authentification SMB supportés (voir :class:`SmbStorageBackend`).
+AUTH_MODES = ("session", "credentials", "guest")
+
 
 @runtime_checkable
 class StorageBackend(Protocol):
@@ -168,17 +171,27 @@ class SmbStorageBackend:
     l'utilisateur) ; smbprotocol, en revanche, attend des chemins UNC
     (``\\\\hôte\\partage\\chemin``), la conversion est faite ici.
 
-    La session SMB est **paresseuse** : elle n'est établie qu'au premier accès
-    (authentification NTLM avec le nom d'utilisateur fourni et le mot de passe
-    lu exclusivement depuis la variable d'environnement
-    ``WORKSTATION_TOOLER_SMB_PASSWORD``). Un partage injoignable ne fait donc
-    pas échouer la construction du backend — l'application démarre, et
-    l'erreur remonte aux tâches de fond qui consultent le catalogue.
+    Trois modes d'authentification (``auth``, voir :const:`AUTH_MODES`) :
+        - ``session`` : authentification implicite avec la session de
+          l'utilisateur du poste (SSPI ``Negotiate`` : Kerberos puis NTLM) —
+          poste joint au domaine, l'utilisateur doit avoir les droits de
+          lecture sur le partage ;
+        - ``credentials`` : compte explicite (``username`` et mot de passe lu
+          exclusivement depuis la variable d'environnement
+          ``WORKSTATION_TOOLER_SMB_PASSWORD``) ;
+        - ``guest`` : compte mappé invité côté serveur, sans signature ni
+          secure negotiate (partage public de développement/test).
+
+    La session SMB est **paresseuse** : elle n'est établie qu'au premier accès.
+    Un partage injoignable ne fait donc pas échouer la construction du
+    backend — l'application démarre, et l'erreur remonte aux tâches de fond
+    qui consultent le catalogue.
     """
 
     def __init__(
         self,
         base_uri: str,
+        auth: str = "session",
         username: str = "",
         domain: str = "",
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
@@ -187,23 +200,57 @@ class SmbStorageBackend:
 
         Args:
             base_uri: Racine du catalogue au format ``smb://hôte/partage``.
-            username: Nom d'utilisateur SMB. smbprotocol ne gère pas la
-                session anonyme pure : pour un partage public, renseigner un
-                compte mappé invité côté serveur (ex. ``map to guest``).
+            auth: Mode d'authentification parmi :const:`AUTH_MODES`.
+            username: Nom d'utilisateur SMB (modes ``credentials`` et
+                ``guest`` uniquement).
             domain: Domaine NTLM optionnel (combiné au nom d'utilisateur).
             timeout_seconds: Délai maximal de connexion (secondes).
 
         Raises:
-            ValueError: Si l'URI n'est pas une URI SMB valide.
+            ValueError: Si l'URI n'est pas une URI SMB valide, si le mode
+                d'authentification est inconnu, ou si la combinaison
+                mode/identifiants est incohérente.
         """
         self._server, self._share_root = parse_smb_uri(base_uri)
 
-        full_username = f"{domain}\\{username}" if domain and username else username
-        # pyspnego ne propose NTLM que si des identifiants existent : lorsqu'un
-        # utilisateur est renseigné sans mot de passe (partage public mappé
-        # invité côté serveur), on passe une chaîne vide plutôt que None.
-        self._username = full_username
-        self._password = os.environ.get(SMB_PASSWORD_ENV_VAR, "") if full_username else None
+        if auth not in AUTH_MODES:
+            raise ValueError(
+                f"Mode d'authentification SMB inconnu : {auth!r} "
+                f"(modes supportés : {', '.join(AUTH_MODES)})."
+            )
+        self._auth = auth
+
+        if auth == "session":
+            if username or domain:
+                raise ValueError(
+                    "Les clés 'repository.username' et 'repository.domain' sont "
+                    "incompatibles avec le mode d'authentification 'session' "
+                    "(la session de l'utilisateur du poste est utilisée)."
+                )
+            # Sans identifiants, smbprotocol négocie via SSPI/GSSAPI les
+            # credentials de l'utilisateur courant (Kerberos, puis NTLM).
+            self._username = None
+            self._password = None
+        else:
+            if not username:
+                raise ValueError(
+                    f"Le mode d'authentification '{auth}' exige 'repository.username'."
+                )
+            self._username = f"{domain}\\{username}" if domain else username
+            if auth == "credentials":
+                password = os.environ.get(SMB_PASSWORD_ENV_VAR)
+                if not password:
+                    raise ValueError(
+                        "Le mode d'authentification 'credentials' exige le mot "
+                        f"de passe SMB dans la variable d'environnement {SMB_PASSWORD_ENV_VAR}."
+                    )
+                self._password = password
+            else:
+                # pyspnego ne propose NTLM que si des identifiants existent :
+                # pour un compte mappé invité (sans mot de passe), on passe
+                # une chaîne vide plutôt que None.
+                self._password = ""
+
         self._timeout_seconds = timeout_seconds
         self._session_registered = False
 
@@ -216,23 +263,39 @@ class SmbStorageBackend:
         """
         if self._session_registered:
             return
-        # Une session invité ne peut ni signer ni chiffrer les messages SMB :
-        # sans mot de passe (partage public), la signature obligatoire doit
-        # être levée, faute de quoi le serveur rejette la session avec
-        # « guest which does not support encryption or signing ».
-        guest_session = bool(self._username) and not self._password
-        if guest_session:
-            # La vérification d'intégrité de la négociation (secure negotiate)
-            # repose elle aussi sur la clé de signature : sans clé (invité),
-            # elle doit être désactivée explicitement.
+        if self._auth == "guest":
+            # Une session invité ne peut ni signer ni chiffrer les messages
+            # SMB : sans mot de passe (partage public), la signature
+            # obligatoire doit être levée, faute de quoi le serveur rejette
+            # la session avec « guest which does not support encryption or
+            # signing ». La vérification d'intégrité de la négociation
+            # (secure negotiate) repose elle aussi sur la clé de signature :
+            # sans clé (invité), elle doit être désactivée explicitement.
             smbclient.ClientConfig().require_secure_negotiate = False
-        smbclient.register_session(
-            self._server,
-            username=self._username or None,
-            password=self._password,
-            require_signing=not guest_session,
-            connection_timeout=self._timeout_seconds,
-        )
+            smbclient.register_session(
+                self._server,
+                username=self._username,
+                password=self._password,
+                require_signing=False,
+                connection_timeout=self._timeout_seconds,
+            )
+        elif self._auth == "credentials":
+            smbclient.register_session(
+                self._server,
+                username=self._username,
+                password=self._password,
+                require_signing=True,
+                connection_timeout=self._timeout_seconds,
+            )
+        else:
+            # Mode 'session' : sans identifiants, smbprotocol s'authentifie
+            # avec la session de l'utilisateur courant (SSPI Negotiate :
+            # Kerberos puis NTLM). La signature SMB reste exigée (défaut).
+            smbclient.register_session(
+                self._server,
+                require_signing=True,
+                connection_timeout=self._timeout_seconds,
+            )
         self._session_registered = True
 
     def _uri(self, path: str) -> str:
@@ -271,6 +334,7 @@ class SmbStorageBackend:
 
 def build_storage_backend(
     uri: str,
+    auth: str = "session",
     username: str = "",
     domain: str = "",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
@@ -279,20 +343,29 @@ def build_storage_backend(
 
     Args:
         uri: Racine du catalogue (``smb://hôte/partage`` ou ``file:///chemin``).
-        username: Nom d'utilisateur SMB (backend SMB uniquement).
-        domain: Domaine NTLM optionnel (backend SMB uniquement).
+        auth: Mode d'authentification SMB parmi :const:`AUTH_MODES`
+            (backend SMB uniquement).
+        username: Nom d'utilisateur SMB (modes ``credentials`` et ``guest``
+            uniquement, backend SMB uniquement).
+        domain: Domaine NTLM optionnel (modes ``credentials`` et ``guest``
+            uniquement, backend SMB uniquement).
         timeout_seconds: Délai de connexion SMB (secondes).
 
     Returns:
         Une instance de backend prête à l'emploi.
 
     Raises:
-        ValueError: Si le schéma de l'URI n'est pas supporté.
+        ValueError: Si le schéma de l'URI n'est pas supporté, ou si le mode
+            d'authentification SMB est inconnu/incohérent.
     """
     scheme = urlparse(uri).scheme.lower()
     if scheme == "smb":
         return SmbStorageBackend(
-            uri, username=username, domain=domain, timeout_seconds=timeout_seconds
+            uri,
+            auth=auth,
+            username=username,
+            domain=domain,
+            timeout_seconds=timeout_seconds,
         )
     if scheme in ("", "file"):
         return LocalStorageBackend(uri)

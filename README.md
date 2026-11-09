@@ -44,9 +44,11 @@ Les logs sont écrits dans `logs/workstation_tooler.log` (dossier créé au
 premier lancement). La configuration générale (`config/settings.yaml`) définit
 notamment le niveau de log, les intervalles de vérification et le chemin réseau
 du catalogue (`repository.uri` — un chemin `file://` est accepté pour développer
-sans partage). Le mot de passe SMB éventuel se fournit via la variable
-d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`. Un exemple de catalogue est
-disponible dans [`examples/partage/`](examples/partage/README.md).
+sans partage). Par défaut (`repository.auth: session`), l'accès au partage SMB
+utilise la session de l'utilisateur du poste (poste joint au domaine Active
+Directory) ; un mot de passe n'est nécessaire qu'en mode `auth: credentials`,
+via la variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`. Un exemple
+de catalogue est disponible dans [`examples/partage/`](examples/partage/README.md).
 
 ## Développement
 

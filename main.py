@@ -184,6 +184,7 @@ def build_repository(config: ConfigLoader) -> RemoteRepository:
         )
     backend = build_storage_backend(
         uri,
+        auth=str(config.get_setting("repository.auth", default="session") or "session"),
         username=str(config.get_setting("repository.username", default="") or ""),
         domain=str(config.get_setting("repository.domain", default="") or ""),
         timeout_seconds=int(

@@ -27,7 +27,7 @@ L'application repose sur plusieurs Singletons obligatoires. Tout nouveau composa
 Il n'y a plus de module Python par outil : un moteur unique (`engine/update_engine.py`) découvre les applications depuis le catalogue distant — un dossier par application avec `app.yaml`, un dossier par version avec `manifest.yaml`, actions `copy` / `decompress` / `ensure_content`. Référence : `docs/moteur_mise_a_jour.md`. Ajouter un outil = déposer des fichiers sur le partage, zéro code local.
 - **Validation stricte des manifests** (`engine/models.py`) : schéma fermé, `yaml.safe_load`, actions limitées à l'enum.
 - **Résilience** : une application mal déclarée est ignorée et journalisée, sans empêcher le traitement des autres.
-- **Backends de stockage** (`engine/storage.py`) : SMB (`smbprotocol`) ou `file://` (dev/tests).
+- **Backends de stockage** (`engine/storage.py`) : SMB (`smbprotocol`, authentification `session`/`credentials`/`guest` via `repository.auth`) ou `file://` (dev/tests).
 
 ### Gestion de l'arborescence
 - L'arborescence doit être basée sur la description qui en est faite dans le document `docs/arborescence.md`.
@@ -44,7 +44,7 @@ Il n'y a plus de module Python par outil : un moteur unique (`engine/update_engi
 ### Développement
 - **Thread-Safety** : Toute opération I/O (réseau SMB, sous-processus, fichiers) doit être déléguée au `ThreadManager` via un `QThread` — les méthodes bloquantes du moteur ne s'appellent qu'à travers les wrappers `start_*`.
 - **Dépendances** : Ne pas ajouter de librairies tierces sans justification écrite.
-- **Secrets** : Aucun mot de passe ou clé API en dur (mot de passe SMB : variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`). Exception assumée : le token GitLab en lecture seule `GITLAB_READ_TOKEN` vit dans `core/app_updater.py` (voir `docs/maj_application.md`).
+- **Secrets** : Aucun mot de passe ou clé API en dur (accès SMB par défaut via la session de l'utilisateur du poste, `repository.auth: session` ; mot de passe du mode `credentials` : variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD`). Exception assumée : le token GitLab en lecture seule `GITLAB_READ_TOKEN` vit dans `core/app_updater.py` (voir `docs/maj_application.md`).
 
 ## 🛠️ Workflow de Vérification
 Avant de proposer une solution, Copilot doit s'assurer que :

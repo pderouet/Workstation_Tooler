@@ -167,8 +167,9 @@ une modification d'un fragment partagé (profil PowerShell, vimrc, etc.).
 
 ```yaml
 repository:
-  uri: "smb://localhost/Workstation_Tooler"   # chemin réseau unique du catalogue
-  username: "guest"       # compte SMB (voir « Authentification » ci-dessous)
+  uri: "smb://SERVEUR.DOMAINE/Workstation_Tooler"   # chemin réseau unique du catalogue
+  auth: "session"        # session | credentials | guest (voir ci-dessous)
+  username: ""           # modes credentials et guest uniquement
   domain: ""
   timeout_seconds: 30
 ```
@@ -178,21 +179,34 @@ et tests : le même moteur s'exécute alors sur un répertoire local.
 
 ### Authentification
 
-La bibliothèque SMB utilisée (`smbprotocol`, module `smbclient`) ne sait pas
-établir de session anonyme pure : un nom d'utilisateur est requis. Deux
-situations :
+La clé `repository.auth` sélectionne le mode d'authentification SMB :
 
-- **partage public (guest)** : mapper les requêtes invité côté serveur Samba
-  (`map to guest = Bad User` dans `[global]` de `smb.conf`) et renseigner un
-  utilisateur quelconque (ex. `guest`) **sans mot de passe**. Une session
-  invité ne pouvant ni signer ni chiffrer les messages SMB, le backend lève
-  alors automatiquement l'exigence de signature et la vérification *secure
-  negotiate* (sinon le serveur rejette la session avec « guest which does not
-  support encryption or signing ») ;
-- **partage authentifié** : renseigner `repository.username` et fournir le
-  mot de passe via la variable d'environnement
-  `WORKSTATION_TOOLER_SMB_PASSWORD` (jamais dans la configuration) — la
-  signature des messages reste alors exigée.
+- **`session` (défaut, production)** : l'accès utilise la **session de
+  l'utilisateur du poste** — sur un poste Windows joint au domaine Active
+  Directory, smbprotocol négocie via SSPI (`Negotiate` : Kerberos puis NTLM)
+  avec les identifiants de la session, sans mot de passe ni compte dédié.
+  Prérequis : l'utilisateur (ou son groupe AD) doit avoir les droits de
+  **lecture** sur le partage. `username`/`domain` doivent rester vides (sinon
+  erreur au démarrage) et la signature des messages reste exigée. En
+  développement Linux (sans Kerberos local), ce mode ne peut pas
+  s'authentifier : préférer `file://` ou `guest` ;
+- **`credentials`** : compte explicite — renseigner `repository.username`
+  (et `repository.domain` le cas échéant) et fournir le mot de passe via la
+  variable d'environnement `WORKSTATION_TOOLER_SMB_PASSWORD` (jamais dans la
+  configuration, exigée au démarrage dans ce mode) — signature exigée ;
+- **`guest`** (développement/test) : partage public — la bibliothèque SMB
+  (`smbprotocol`, module `smbclient`) ne sait pas établir de session anonyme
+  pure : mapper les requêtes invité côté serveur Samba (`map to guest = Bad
+  User` dans `[global]` de `smb.conf`) et renseigner `repository.username`
+  (ex. `guest`). Une session invité ne pouvant ni signer ni chiffrer les
+  messages SMB, le backend lève alors automatiquement l'exigence de signature
+  et la vérification *secure negotiate* (sinon le serveur rejette la session
+  avec « guest which does not support encryption or signing »).
+
+Un refus d'authentification en mode `session` (poste hors domaine, droits AD
+manquants) se manifeste comme un partage injoignable : état dégradé (icône
+d'erreur, reprise toutes les `update.retry_interval_minutes` minutes), sans
+blocage du démarrage.
 
 ## Sécurité
 

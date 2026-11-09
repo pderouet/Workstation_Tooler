@@ -36,9 +36,11 @@ Avec le client SMB en ligne de commande (session invité) :
 smbclient //localhost/Workstation_Tooler -N -c "lcd <chemin vers ce dossier>; prompt; recurse; mput vim k9s"
 ```
 
-Si le partage exige une authentification, renseignez l'utilisateur dans
-`config/settings.yaml` (`repository.username`) et exportez le mot de passe
-avant de lancer l'application :
+Ce partage de test local correspond au mode `auth: "guest"` avec
+`username: "guest"` dans `config/settings.yaml`. Si le partage exige plutôt un
+compte authentifié, passez en mode `auth: "credentials"`, renseignez
+`repository.username` et exportez le mot de passe avant de lancer
+l'application :
 
 ```bash
 export WORKSTATION_TOOLER_SMB_PASSWORD='...'

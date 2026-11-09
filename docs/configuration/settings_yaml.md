@@ -80,8 +80,9 @@ anonymement ; un jeton optionnel `WORKSTATION_TOOLER_GITHUB_TOKEN`
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `uri` | chaîne | — | **Requis.** Racine du catalogue : `smb://hôte/partage[/sous-chemin]`, ou `file:///chemin/local` (développement, tests). Toute autre URI (`http://`, `ftp://`...) est refusée au démarrage. |
-| `username` | chaîne | `""` | Compte SMB. smbprotocol ne sait pas ouvrir de session anonyme pure : pour un partage public, mapper les invités côté serveur Samba (`map to guest = Bad User`) et renseigner un utilisateur quelconque (ex. `guest`) **sans mot de passe**. |
-| `domain` | chaîne | `""` | Domaine NTLM, combiné au nom d'utilisateur (`DOMAINE\utilisateur`). |
+| `auth` | chaîne | `session` | Mode d'authentification SMB : `session` (SSO avec la session de l'utilisateur du poste — poste Windows joint au domaine AD, droits de lecture requis sur le partage, `username`/`domain` interdits), `credentials` (compte explicite + mot de passe en variable d'environnement) ou `guest` (partage public de dev/test, sans signature). |
+| `username` | chaîne | `""` | Compte SMB — modes `credentials` et `guest` uniquement (**requis** dans ces deux modes, refusé en mode `session`). smbprotocol ne sait pas ouvrir de session anonyme pure : en mode `guest`, mapper les invités côté serveur Samba (`map to guest = Bad User`). |
+| `domain` | chaîne | `""` | Domaine NTLM, combiné au nom d'utilisateur (`DOMAINE\utilisateur`) — modes `credentials` et `guest` uniquement. |
 | `timeout_seconds` | entier | `30` | Délai maximal d'établissement de la session SMB. |
 
 La session SMB est **paresseuse** : établie au premier accès au catalogue. Un
@@ -108,23 +109,31 @@ dérogation documentée existe pour le token GitLab) :
 
 | Secret | Variable d'environnement | Usage |
 |---|---|---|
-| Mot de passe SMB | `WORKSTATION_TOOLER_SMB_PASSWORD` | Session SMB authentifiée ; vide/absente = session invité (sans signature). |
+| Mot de passe SMB | `WORKSTATION_TOOLER_SMB_PASSWORD` | Uniquement en mode `repository.auth: credentials` (compte explicite) — exigée au démarrage dans ce mode. Les modes `session` (défaut) et `guest` n'utilisent aucun mot de passe. |
 | Token GitLab lecture seule | `WORKSTATION_TOOLER_GITLAB_TOKEN` (recommandée), repli : constante `GITLAB_READ_TOKEN` de `core/app_updater.py` | API v4 et téléchargement de l'archive GitLab. **Dépôt public** : laisser la constante vide. |
 | Jeton GitHub (optionnel) | `WORKSTATION_TOOLER_GITHUB_TOKEN` | Uniquement si le dépôt GitHub redevient privé. |
 
 ## Exemples d'URI de catalogue
 
 ```yaml
-# Partage SMB (production) — session invité publique
+# Partage SMB (production) — session de l'utilisateur du poste (AD)
 repository:
   uri: "smb://srv-fichiers/Workstation_Tooler"
-  username: "guest"
+  auth: "session"
 
 # Partage SMB — compte authentifié
+# (+ export WORKSTATION_TOOLER_SMB_PASSWORD='...')
 repository:
   uri: "smb://srv-fichiers/Workstation_Tooler"
+  auth: "credentials"
   username: "deploiement"
   domain: "ENTREPRISE"
+
+# Partage SMB public (développement/test) — invités mappés côté Samba
+repository:
+  uri: "smb://localhost/Workstation_Tooler"
+  auth: "guest"
+  username: "guest"
 
 # Répertoire local (développement, tests — même moteur, sans réseau)
 repository:

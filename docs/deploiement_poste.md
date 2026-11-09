@@ -26,9 +26,12 @@ python -m venv .venv
 ```
 
 Puis configurer le poste (voir [`configuration/settings_yaml.md`](configuration/settings_yaml.md)) :
-`repository.uri` (partage du catalogue), `repository.username`, niveau de log.
-Secrets en variables d'environnement de session si besoin :
-`WORKSTATION_TOOLER_SMB_PASSWORD`, `WORKSTATION_TOOLER_GITLAB_TOKEN`.
+`repository.uri` (partage du catalogue), `repository.auth` (`session` par
+défaut : l'accès SMB utilise la session de l'utilisateur — poste joint au
+domaine Active Directory, avec droits de lecture sur le partage), niveau de
+log. Secrets en variables d'environnement de session si besoin :
+`WORKSTATION_TOOLER_GITLAB_TOKEN` (et `WORKSTATION_TOOLER_SMB_PASSWORD`
+uniquement en mode `auth: credentials`).
 
 Premier lancement manuel pour valider :
 
@@ -86,7 +89,7 @@ devient `Workstation_Tooler\.venv\Scripts\` sous Windows.
 | Variables `${VAR}` | **non développées** sous Windows (`%VAR%` l'est, `${VAR}` uniquement sous Linux) — voir [`configuration/manifest_yaml.md`](configuration/manifest_yaml.md#cibles-et-portabilité-target) |
 | Détection de binaire | `shutil.which` s'appuie sur `PATHEXT` : `vim` trouve `vim.exe` |
 | `mode: "755"` | sans effet (no-op) : Windows ne pilote pas les bits Unix — aucun crash |
-| Partage SMB | smbprotocol est natif Windows ; les URI `smb://...` sont converties en UNC en interne |
+| Partage SMB | smbprotocol est natif Windows ; les URI `smb://...` sont converties en UNC en interne. En mode `auth: session`, l'authentification utilise la session Windows de l'utilisateur (SSPI `Negotiate` : Kerberos puis NTLM) — la dépendance `sspilib` s'installe automatiquement sous Windows |
 | Mise à jour autonome | PID via `tasklist`, arrêt forcé via `taskkill /F`, process détachés (`DETACHED_PROCESS`), venv dans `.venv\Scripts\` — déjà implémenté dans `updater.py` |
 | Console colorée | mode ANSI activé automatiquement |
 
