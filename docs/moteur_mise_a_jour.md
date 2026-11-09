@@ -21,6 +21,13 @@ Il suffit de déposer sur le partage :
 Un dossier d'exemple complet et commenté est fourni dans
 [`examples/partage/`](../examples/partage/README.md).
 
+> 📘 **Références détaillées** : ce document donne la vue d'ensemble. Les
+> schémas complets, clés par clé, sont dans le dossier
+> [`configuration/`](configuration/README.md) :
+> [`app_yaml.md`](configuration/app_yaml.md) (métadonnées + détection),
+> [`manifest_yaml.md`](configuration/manifest_yaml.md) (fichiers + actions),
+> [`settings_yaml.md`](configuration/settings_yaml.md) (configuration locale).
+
 ## Arborescence du catalogue
 
 ```

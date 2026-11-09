@@ -25,7 +25,12 @@
 ├── docs/
 │   ├── arborescence.md                 # Ce document : description de référence de l'arborescence
 │   ├── moteur_mise_a_jour.md           # Référence du moteur : catalogue distant, manifests, actions
-│   └── maj_application.md              # Référence de la mise à jour autonome de l'application (forge, updater.py)
+│   ├── maj_application.md              # Référence de la mise à jour autonome de l'application (forge, updater.py)
+│   └── configuration/                  # Références détaillées des formats YAML
+│       ├── README.md                   # Sommaire des références de configuration
+│       ├── app_yaml.md                 # Schéma complet de app.yaml (catalogue distant)
+│       ├── manifest_yaml.md            # Schéma complet de manifest.yaml (fichiers + actions)
+│       └── settings_yaml.md            # Schéma complet de config/settings.yaml (poste)
 ├── engine/                             # Moteur de mise à jour piloté par le catalogue distant
 │   ├── __init__.py                     # Présentation du paquet engine
 │   ├── models.py                       # Dataclasses du catalogue + parsing/validation stricts des YAML

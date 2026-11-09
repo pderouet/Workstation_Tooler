@@ -147,6 +147,9 @@ recouvrement, sans garde ni purge — les fichiers préexistants non déployés
 
 ## Configuration (`config/settings.yaml`)
 
+> Référence complète clé par clé :
+> [`configuration/settings_yaml.md`](configuration/settings_yaml.md).
+
 ```yaml
 update:
   app_check_interval_minutes: 240   # fréquence de vérification
