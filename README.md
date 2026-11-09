@@ -89,3 +89,4 @@ Les instructions de référence pour les agents IA (ZCode) sont dans
 [`AGENTS.md`](AGENTS.md) à la racine. Les fichiers de
 `.github/instructions/` sont la copie destinée à GitHub Copilot : en cas
 d'évolution des règles, synchroniser les deux sources manuellement.
+
