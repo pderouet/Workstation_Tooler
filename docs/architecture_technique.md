@@ -65,7 +65,7 @@ Deux mécanismes selon la nature de la classe :
 | Mécanisme | Classes | Pourquoi |
 |---|---|---|
 | Métaclasse `SingletonMeta` (`core/__init__.py`) | `Logger`, `ConfigLoader`, `ErrorHandler`, `AppUpdater` | POJO purs : le dict d'instances de la métaclasse suffit. |
-| `__new__` gardé + drapeau `_initialized` | `EventBus`, `ThreadManager`, `Scheduler` | `QObject` : l'initialisation Qt ne doit se faire qu'une fois. |
+| Fabrique de module (`event_bus()`, `thread_manager()`, `scheduler()`) | `EventBus`, `ThreadManager`, `Scheduler` | `QObject`/sip : surcharger `__new__`/`__init__` y provoque, avec certaines combinaisons PyQt6/sip (constaté sous Windows), une récursion infinie de l'initialisation native (stack overflow silencieux). La fabrique crée l'unique instance en paresseux sur une classe Qt ordinaire — voir `tests/test_singletons.py`. |
 
 Tout nouveau composant technique doit se demander s'il doit être singleton
 (règle [AGENTS.md](../AGENTS.md)).

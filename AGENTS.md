@@ -15,7 +15,10 @@ chemin réseau unique (partage SMB).
 
 ### 1. Patrons de Conception (Singletons)
 L'application repose sur plusieurs Singletons obligatoires, basés sur la métaclasse
-`SingletonMeta` (`core/__init__.py`) — ou sur un `__new__` gardé pour les `QObject`. Tout
+`SingletonMeta` (`core/__init__.py`) pour les classes pures, ou sur des **fabriques de
+module** (`event_bus()`, `thread_manager()`, `scheduler()`) pour les `QObject` — ne pas
+surcharger `__new__`/`__init__` sur une classe sip/PyQt (récursion native observée sous
+Windows). Tout
 nouveau composant technique doit vérifier s'il doit être un singleton :
 - **Logger** (`core/logger.py`) : Doit inclure systématiquement le nom/ID du thread émetteur
   dans chaque log.

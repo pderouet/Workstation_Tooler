@@ -9,7 +9,7 @@ Qt (``QueuedConnection`` automatique entre threads différents).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -52,17 +52,25 @@ class EventBus(QObject):
     task_started = pyqtSignal(str)
     task_finished = pyqtSignal(str)
 
-    _instance: Optional["EventBus"] = None
-    _initialized: bool = False
 
-    def __new__(cls, *args: Any, **kwargs: Dict[str, Any]) -> "EventBus":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+#: Instance unique de l'EventBus (créée au premier appel de la fabrique).
+_instance: Optional["EventBus"] = None
 
-    def __init__(self) -> None:
-        """Initialise le ``QObject`` sous-jacent une seule fois (garde Singleton)."""
-        if EventBus._initialized:
-            return
-        super().__init__()
-        EventBus._initialized = True
+
+def event_bus() -> "EventBus":
+    """Retourne l'instance unique de l'``EventBus`` (créée au premier appel).
+
+    Les singletons ``QObject`` sont gérés par des fabriques de module plutôt
+    que par surcharge de ``__new__``/``__init__`` : ce dernier patron provoque,
+    avec certaines combinaisons PyQt6/sip, une récursion infinie de
+    l'initialisation native (stack overflow silencieux, constaté sur Windows).
+    Une classe ``QObject`` ordinaire construite une seule fois ne peut pas
+    boucler.
+
+    Returns:
+        L'instance unique du bus d'événements.
+    """
+    global _instance
+    if _instance is None:
+        _instance = EventBus()
+    return _instance

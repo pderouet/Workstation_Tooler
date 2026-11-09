@@ -28,7 +28,7 @@ from PyQt6.QtCore import QObject, QTimer
 from core.app_updater import AppUpdater
 from core.config_loader import ConfigLoader
 from core.error_handler import ErrorHandler
-from core.event_bus import EventBus
+from core.event_bus import event_bus
 from core.logger import Logger
 
 if TYPE_CHECKING:
@@ -114,28 +114,18 @@ class Scheduler(QObject):
     """Planifie les vérifications récurrentes de mise à jour (application et catalogue).
 
     Exemple :
-        >>> Scheduler().configure(engine=update_engine)
-        >>> Scheduler().start()
+        >>> scheduler().configure(engine=update_engine)
+        >>> scheduler().start()
     """
 
-    _instance: Optional["Scheduler"] = None
-    _initialized: bool = False
-
-    def __new__(cls, *args: Any, **kwargs: Dict[str, Any]) -> "Scheduler":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self) -> None:
-        """Initialise les timers et les dépendances (une seule fois)."""
-        if Scheduler._initialized:
-            return
+        """Initialise les timers et les dépendances."""
         super().__init__()
         self._logger = Logger()
         self._config = ConfigLoader()
         self._app_updater = AppUpdater()
         self._error_handler = ErrorHandler()
-        self._event_bus = EventBus()
+        self._event_bus = event_bus()
         self._engine: Optional["UpdateEngine"] = None
 
         self._app_timer = QTimer(self)
@@ -159,8 +149,6 @@ class Scheduler(QObject):
             ),
             notify=self._event_bus.resource_state_changed.emit,
         )
-
-        Scheduler._initialized = True
 
     def _configured_interval_ms(self, key: str, default_minutes: int) -> int:
         """Lit un intervalle (minutes) dans la configuration et le convertit en ms."""
@@ -262,3 +250,23 @@ class Scheduler(QObject):
         """Journalise le récapitulatif et rétablit le catalogue si dégradé."""
         self._logger.info(f"[scheduler] résultat vérification des applications : {status}")
         self._monitor.register_outcome(RESOURCE_CATALOGUE, available=True)
+
+
+#: Instance unique du Scheduler (créée au premier appel de la fabrique).
+_instance: Optional["Scheduler"] = None
+
+
+def scheduler() -> "Scheduler":
+    """Retourne l'instance unique du ``Scheduler`` (créée au premier appel).
+
+    Singleton par fabrique de module (et non par surcharge de
+    ``__new__``/``__init__``, fragile avec sip — voir
+    :func:`core.event_bus.event_bus`).
+
+    Returns:
+        L'instance unique du planificateur.
+    """
+    global _instance
+    if _instance is None:
+        _instance = Scheduler()
+    return _instance

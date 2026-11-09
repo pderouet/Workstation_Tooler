@@ -10,7 +10,7 @@ transiter par ``ErrorHandler.handle_exception``.
 from __future__ import annotations
 
 from core import SingletonMeta
-from core.event_bus import EventBus
+from core.event_bus import event_bus
 from core.logger import Logger
 
 
@@ -27,7 +27,7 @@ class ErrorHandler(metaclass=SingletonMeta):
     def __init__(self) -> None:
         """Connecte le gestionnaire au ``Logger`` et à l'``EventBus``."""
         self._logger = Logger()
-        self._event_bus = EventBus()
+        self._event_bus = event_bus()
 
     def handle_exception(
         self,

@@ -31,9 +31,9 @@ from typing import Any, Callable, Dict, Optional
 
 from core import SingletonMeta
 from core.config_loader import PROJECT_ROOT, ConfigLoader
-from core.event_bus import EventBus
+from core.event_bus import event_bus
 from core.logger import Logger
-from core.thread_manager import ThreadManager
+from core.thread_manager import thread_manager
 from engine.version import compare_versions
 
 #: Nom du fichier de version, incrémenté par la CI à chaque push sur la branche principale.
@@ -271,8 +271,8 @@ class AppUpdater(metaclass=SingletonMeta):
     def __init__(self) -> None:
         """Connecte le composant aux singletons du socle (logger, bus, threads, config)."""
         self._logger = Logger()
-        self._event_bus = EventBus()
-        self._thread_manager = ThreadManager()
+        self._event_bus = event_bus()
+        self._thread_manager = thread_manager()
         self._config = ConfigLoader()
         #: Report « Pas aujourd'hui » : mémoire d'exécution uniquement,
         #: réinitialisée naturellement au redémarrage du programme.

@@ -69,27 +69,16 @@ class ThreadManager(QObject):
     """Gère la création et le nettoyage des ``QThread`` applicatifs.
 
     Exemple :
-        >>> ThreadManager().run_task(
+        >>> thread_manager().run_task(
         ...     my_long_function,
         ...     on_result=lambda res: print(res),
         ... )
     """
 
-    _instance: Optional["ThreadManager"] = None
-    _initialized: bool = False
-
-    def __new__(cls, *args: Any, **kwargs: Dict[str, Any]) -> "ThreadManager":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self) -> None:
-        """Initialise la table des threads actifs (une seule fois)."""
-        if ThreadManager._initialized:
-            return
+        """Initialise la table des threads actifs."""
         super().__init__()
         self._active_threads: Dict[str, Tuple[QThread, Worker]] = {}
-        ThreadManager._initialized = True
 
     def run_task(
         self,
@@ -149,3 +138,23 @@ class ThreadManager(QObject):
         for thread, _worker in list(self._active_threads.values()):
             thread.quit()
             thread.wait(wait_ms)
+
+
+#: Instance unique du ThreadManager (créée au premier appel de la fabrique).
+_instance: Optional["ThreadManager"] = None
+
+
+def thread_manager() -> "ThreadManager":
+    """Retourne l'instance unique du ``ThreadManager`` (créée au premier appel).
+
+    Singleton par fabrique de module (et non par surcharge de
+    ``__new__``/``__init__``, fragile avec sip — voir
+    :func:`core.event_bus.event_bus`).
+
+    Returns:
+        L'instance unique du gestionnaire de threads.
+    """
+    global _instance
+    if _instance is None:
+        _instance = ThreadManager()
+    return _instance

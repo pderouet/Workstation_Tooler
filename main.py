@@ -23,10 +23,10 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QStyle
 
 from core.config_loader import PROJECT_ROOT, ConfigLoader
 from core.error_handler import ErrorHandler
-from core.event_bus import EventBus
+from core.event_bus import EventBus, event_bus
 from core.logger import Logger
-from core.scheduler import Scheduler
-from core.thread_manager import ThreadManager
+from core.scheduler import scheduler
+from core.thread_manager import ThreadManager, thread_manager
 from engine.repository import RemoteRepository
 from engine.storage import DEFAULT_TIMEOUT_SECONDS, build_storage_backend
 from engine.update_engine import UpdateEngine
@@ -136,14 +136,14 @@ def bootstrap(
     logger = Logger()
     logger.configure(log_file=_log_file_path(config), level=log_level)
 
-    event_bus = EventBus()
-    thread_manager = ThreadManager()
+    event_bus_instance = event_bus()
+    thread_manager_instance = thread_manager()
     error_handler = ErrorHandler()
 
     logger.info(
         "Socle applicatif initialisé (Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler)."
     )
-    return logger, event_bus, config, thread_manager, error_handler
+    return logger, event_bus_instance, config, thread_manager_instance, error_handler
 
 
 def _log_file_path(config: ConfigLoader) -> Optional[Path]:
@@ -204,13 +204,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    logger, event_bus, config, thread_manager, error_handler = bootstrap()
+    logger, bus, config, threads, error_handler = bootstrap()
 
     repository = build_repository(config)
     engine = UpdateEngine(
         logger=logger,
-        event_bus=event_bus,
-        thread_manager=thread_manager,
+        event_bus=bus,
+        thread_manager=threads,
         repository=repository,
     )
 
@@ -230,13 +230,13 @@ def main() -> int:
         on_error=lambda exc: error_handler.handle_exception(exc, context="catalogue"),
     )
 
-    scheduler = Scheduler()
-    scheduler.configure(engine=engine)
-    scheduler.start()
+    scheduler_instance = scheduler()
+    scheduler_instance.configure(engine=engine)
+    scheduler_instance.start()
 
     exit_code = app.exec()
-    scheduler.stop()
-    thread_manager.shutdown()
+    scheduler_instance.stop()
+    threads.shutdown()
     return exit_code
 
 

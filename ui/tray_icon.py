@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon, Q
 
 from core.app_updater import AppUpdater
 from core.error_handler import ErrorHandler
-from core.event_bus import EventBus
+from core.event_bus import event_bus
 from core.logger import Logger
 from engine.update_engine import UpdateEngine
 
@@ -55,7 +55,7 @@ class TrayIcon(QSystemTrayIcon):
         super().__init__(icons["ok"], parent)
         self._icons = icons
         self._logger = Logger()
-        self._event_bus = EventBus()
+        self._event_bus = event_bus()
         self._error_handler = ErrorHandler()
         self._app_updater = AppUpdater()
         self._engine = engine
