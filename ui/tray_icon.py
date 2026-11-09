@@ -65,6 +65,8 @@ class TrayIcon(QSystemTrayIcon):
 
         self._active_tasks: Set[str] = set()
         self._pending_updates: Set[str] = set()
+        #: Ressources réseau actuellement inaccessibles (catalogue, forge).
+        self._unavailable: Set[str] = set()
 
         self.setToolTip("Workstation Tooler")
         self._build_menu()
@@ -135,6 +137,8 @@ class TrayIcon(QSystemTrayIcon):
         self._event_bus.error_occurred.connect(self._on_error_occurred)
         self._event_bus.update_finished.connect(self._on_update_finished)
         self._event_bus.update_available.connect(self._on_update_available)
+        self._event_bus.catalog_updates_available.connect(self._on_catalog_updates_available)
+        self._event_bus.resource_state_changed.connect(self._on_resource_state_changed)
         self._event_bus.catalog_loaded.connect(self._on_catalog_loaded)
         self._event_bus.module_status_changed.connect(self._on_module_status_changed)
         self._event_bus.task_started.connect(self._on_task_started)
@@ -322,20 +326,61 @@ class TrayIcon(QSystemTrayIcon):
     def _on_update_available(
         self, target_name: str, current_version: str, latest_version: str
     ) -> None:
-        """Enregistre qu'une mise à jour est disponible et notifie l'utilisateur.
+        """Réagit à une mise à jour disponible (réservé à l'application elle-même).
 
-        Pour l'application elle-même, la notification est remplacée par le
-        dialog à trois choix (voir ``_prompt_app_update``).
+        Les mises à jour des applications du catalogue transitent par
+        ``catalog_updates_available`` (notification groupée).
         """
-        if target_name == "app":
-            self._prompt_app_update(current_version, latest_version)
+        if target_name != "app":
             return
-        self._pending_updates.add(target_name)
+        self._prompt_app_update(current_version, latest_version)
+
+    def _on_catalog_updates_available(self, updates: list) -> None:
+        """Affiche UNE notification listant toutes les mises à jour disponibles.
+
+        Args:
+            updates: Entrées ``{"name", "display_name", "current", "latest"}``.
+        """
+        for entry in updates:
+            self._pending_updates.add(entry["name"])
         self._refresh_icon()
+
+        details = "".join(
+            f"{entry['display_name']} ({entry['current']} -> {entry['latest']})\n"
+            for entry in updates
+        )
         self.showMessage(
-            target_name,
-            f"Mise à jour disponible : {current_version} -> {latest_version}",
+            "Mises à jour disponibles",
+            f"{len(updates)} mise(s) à jour disponible(s) : \n\n  {details}",
             QSystemTrayIcon.MessageIcon.Information,
+        )
+
+    def _on_resource_state_changed(self, resource: str, available: bool) -> None:
+        """Réagit à une transition de disponibilité d'une ressource réseau.
+
+        Aucune notification n'est affichée : l'indisponibilité se reflète
+        uniquement dans l'icône (variante erreur) et dans les journaux, la
+        reprise étant automatique toutes les 3 minutes.
+
+        Args:
+            resource: ``"catalogue"`` (partage réseau) ou ``"forge"``.
+            available: ``True`` lorsque la ressource redevient joignable.
+        """
+        labels = {
+            "catalogue": "Partage réseau (catalogue)",
+            "forge": "Forge (mise à jour de l'application)",
+        }
+        label = labels.get(resource, resource)
+        if available:
+            self._unavailable.discard(resource)
+            self._refresh_icon()
+            self._logger.info(f"[tray] ressource '{resource}' de nouveau accessible.")
+            return
+
+        self._unavailable.add(resource)
+        self._refresh_icon()
+        self._logger.warning(
+            f"[tray] {label} inaccessible — nouvelle tentative toutes les 3 minutes."
         )
 
     def _on_module_status_changed(self, target_name: str, status: str) -> None:
@@ -357,9 +402,11 @@ class TrayIcon(QSystemTrayIcon):
         self._refresh_icon()
 
     def _refresh_icon(self) -> None:
-        """Choisit l'icône à afficher selon l'état courant (WIP > Info > OK)."""
+        """Choisit l'icône à afficher selon l'état courant (WIP > Erreur > Info > OK)."""
         if self._active_tasks:
             self.setIcon(self._icons["wip"])
+        elif self._unavailable:
+            self.setIcon(self._icons["error"])
         elif self._pending_updates:
             self.setIcon(self._icons["info"])
         else:

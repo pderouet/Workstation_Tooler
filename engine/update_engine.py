@@ -136,7 +136,10 @@ class UpdateEngine:
         """Compare, pour chaque application active, la version installée à la plus récente.
 
         Bloquant (réseau + sous-processus) : à exécuter via
-        :meth:`start_check_updates`.
+        :meth:`start_check_updates`. Les mises à jour détectées sont publiées
+        en UN SEUL événement ``catalog_updates_available`` (notification
+        groupée) ; le signal ``update_available`` reste réservé à la mise à
+        jour de l'application elle-même.
 
         Args:
             progress_callback: Fonction optionnelle rappelée avec le
@@ -149,7 +152,7 @@ class UpdateEngine:
         applications = catalog.enabled_applications()
 
         results: Dict[str, Dict[str, Any]] = {}
-        updates_available: List[str] = []
+        updates_available: List[Dict[str, str]] = []
         for index, app in enumerate(applications):
             name = app.metadata.name
             current = self._detect_installed(app)
@@ -168,14 +171,24 @@ class UpdateEngine:
                 f"disponible={latest or 'inconnue'}"
             )
             if update_available:
-                updates_available.append(name)
-                self._event_bus.update_available.emit(
-                    name, current or "non installé", latest or "inconnue"
+                updates_available.append(
+                    {
+                        "name": name,
+                        "display_name": app.metadata.display_name,
+                        "current": current or "non installé",
+                        "latest": latest or "inconnue",
+                    }
                 )
             if progress_callback is not None:
                 progress_callback(int((index + 1) / len(applications) * 100))
 
-        return {"applications": results, "updates_available": updates_available}
+        if updates_available:
+            self._event_bus.catalog_updates_available.emit(updates_available)
+
+        return {
+            "applications": results,
+            "updates_available": [entry["name"] for entry in updates_available],
+        }
 
     def _detect_installed(self, app: Application) -> Optional[str]:
         """Détecte la version installée, en dégradant proprement sur échec.

@@ -62,6 +62,7 @@
 │       ├── app_icon_ok.ico             # Variante verte (état OK)
 │       ├── app_icon_info.ico           # Variante bleue (information / maj disponible)
 │       ├── app_icon_wip.ico            # Variante jaune (opération en cours)
+│       ├── app_icon_err.ico            # Variante rouge (ressource réseau inaccessible)
 │       └── generate_icon_variants.py   # Utilitaire de génération des variantes colorées
 ├── main.py                             # Point d'entrée : socle + UpdateEngine + TrayIcon + Scheduler
 ├── requirements.txt                    # Dépendances runtime (PyQt6, PyYAML, smbprotocol)

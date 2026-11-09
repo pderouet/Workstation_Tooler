@@ -63,6 +63,16 @@ sources possibles** (la première l'emporte) :
 > automatiquement). Dans ce contexte, **laisser la constante vide** et
 > fournir le token via `WORKSTATION_TOOLER_GITLAB_TOKEN` sur chaque poste.
 
+## Forge inaccessible
+
+Une forge (GitHub/GitLab) injoignable est dégradée sans faire planter
+l'application ni notifier l'utilisateur : la vérification de version est
+journalisée, une icône d'erreur s'affiche dans le SystemTray (sans
+notification), et le contrôle est replanifié toutes les
+`update.retry_interval_minutes` minutes (3 par défaut) jusqu'à la
+première réussite — l'intervalle normal (`update.app_check_interval_minutes`)
+est alors restauré.
+
 ## La notification à trois choix
 
 Déclenchée automatiquement par la vérification périodique

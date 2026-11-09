@@ -8,6 +8,7 @@ les variantes d'état utilisées par le SystemTray :
 - ``app_icon_ok.ico``   (vert)  : application/module à jour, aucune action en cours.
 - ``app_icon_info.ico`` (bleu)  : une information est disponible (ex. mise à jour détectée).
 - ``app_icon_wip.ico``  (jaune) : une opération est en cours (installation, maj, ...).
+- ``app_icon_err.ico``  (rouge) : une erreur est survenue.
 
 La teinte de l'arrière-plan d'origine (``#b2ebf2``, cyan clair) est décalée
 vers la teinte cible tout en conservant la saturation et la luminosité de
@@ -40,9 +41,10 @@ ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128)]
 
 #: Teintes cibles (en degrés) par variante d'état.
 TARGET_VARIANTS = {
-    "app_icon_ok.ico": 120.0,  # Vert : OK.
-    "app_icon_info.ico": 210.0,  # Bleu : Info.
-    "app_icon_wip.ico": 48.0,  # Jaune : WIP (en cours).
+    "app_icon_ok.ico": 121.0,  # Vert (#00F704)
+    "app_icon_info.ico": 246.0,  # Bleu (#0019F7)
+    "app_icon_wip.ico": 49.0,  # Jaune (#F7CA00)
+    "app_icon_err.ico": 4.0,  # Rouge (#F71000)
 }
 
 

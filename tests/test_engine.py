@@ -35,6 +35,7 @@ class FakeEventBus:
 
     def __init__(self) -> None:
         self.catalog_loaded = RecordingSignal()
+        self.catalog_updates_available = RecordingSignal()
         self.update_available = RecordingSignal()
         self.module_status_changed = RecordingSignal()
         self.task_started = RecordingSignal()
@@ -139,7 +140,7 @@ def test_load_catalog_publie_les_applications_actives(repository: RemoteReposito
 
 
 def test_check_updates_detecte_les_ecarts(repository: RemoteRepository) -> None:
-    """Une version installée plus ancienne que la disponible déclenche update_available."""
+    """Une version installée plus ancienne que la disponible déclenche l'événement groupé."""
     engine, event_bus, *_ = make_engine(
         repository, installed_by_binary={"vim": "9.1.0500", "k9s": "v0.50.0"}
     )
@@ -148,7 +149,33 @@ def test_check_updates_detecte_les_ecarts(repository: RemoteRepository) -> None:
     assert status["updates_available"] == ["vim"]
     assert status["applications"]["vim"]["update_available"] is True
     assert status["applications"]["k9s"]["update_available"] is False
-    assert event_bus.update_available.calls == [("vim", "9.1.0500", "9.1.0700")]
+    # Un seul événement groupé, avec le libellé UI du catalogue.
+    assert event_bus.catalog_updates_available.calls == [
+        (
+            [
+                {
+                    "name": "vim",
+                    "display_name": "Vim",
+                    "current": "9.1.0500",
+                    "latest": "9.1.0700",
+                }
+            ],
+        )
+    ]
+    # Le signal update_available est réservé à l'application elle-même.
+    assert event_bus.update_available.calls == []
+
+
+def test_check_updates_groupement_en_une_notification(repository: RemoteRepository) -> None:
+    """Plusieurs mises à jour disponibles = UN seul événement les listant toutes."""
+    engine, event_bus, *_ = make_engine(repository, installed_by_binary={"vim": "9.1.0500"})
+    status = engine.check_updates()
+
+    assert status["updates_available"] == ["k9s", "vim"]
+    assert len(event_bus.catalog_updates_available.calls) == 1
+    payload = event_bus.catalog_updates_available.calls[0][0]
+    assert {entry["name"] for entry in payload} == {"k9s", "vim"}
+    assert {entry["display_name"] for entry in payload} == {"K9s", "Vim"}
 
 
 def test_check_updates_application_non_installee(repository: RemoteRepository) -> None:
@@ -157,16 +184,23 @@ def test_check_updates_application_non_installee(repository: RemoteRepository) -
     status = engine.check_updates()
 
     assert status["updates_available"] == ["k9s"]
-    assert event_bus.update_available.calls == [("k9s", "non installé", "v0.50.0")]
+    payload = event_bus.catalog_updates_available.calls[0][0]
+    assert payload == [
+        {"name": "k9s", "display_name": "K9s", "current": "non installé", "latest": "v0.50.0"}
+    ]
+    assert event_bus.update_available.calls == []
 
 
 def test_check_versions_ignoree_si_plus_recente_que_le_catalogue(
     repository: RemoteRepository,
 ) -> None:
     """Un poste plus récent que le catalogue n'est pas rétrogradé."""
-    engine, *_ = make_engine(repository, installed_by_binary={"vim": "9.2.0000", "k9s": "v0.99"})
+    engine, event_bus, *_ = make_engine(
+        repository, installed_by_binary={"vim": "9.2.0000", "k9s": "v0.99"}
+    )
     status = engine.check_updates()
     assert status["updates_available"] == []
+    assert event_bus.catalog_updates_available.calls == []
 
 
 def test_check_updates_charge_le_catalogue_si_necessaire(repository: RemoteRepository) -> None:

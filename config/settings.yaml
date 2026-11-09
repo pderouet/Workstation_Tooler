@@ -7,6 +7,7 @@ logging:
 update:
   check_interval_minutes: 60          # Fréquence de vérification des mises à jour des applications.
   app_check_interval_minutes: 240     # Fréquence de vérification de la mise à jour de l'application.
+  retry_interval_minutes: 3           # Reprise accélérée tant qu'une ressource réseau est inaccessible.
   check_on_startup: true
   app_auto_restart: true              # Relance de l'application après une mise à jour d'elle-même.
 

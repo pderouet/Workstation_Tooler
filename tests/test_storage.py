@@ -95,12 +95,12 @@ def test_smb_unc_path() -> None:
     )
 
 
-def test_session_invite_sans_signature(monkeypatch) -> None:
-    """Sans mot de passe (partage public), la session SMB est ouverte sans signature.
+def test_session_differee_et_invite_sans_signature(monkeypatch) -> None:
+    """Sans mot de passe (partage public), la session SMB différée s'ouvre sans signature.
 
-    Une session invité ne peut ni signer ni chiffrer : exiger la signature
-    ferait rejeter la connexion (« guest does not support encryption or
-    signing »), et la vérification secure negotiate doit aussi être levée.
+    La construction n'établit AUCUNE connexion (un partage injoignable ne fait
+    pas planter l'application) : la session invité — qui ne peut ni signer ni
+    chiffrer — s'établit au premier accès, sans signature ni secure negotiate.
     """
     from engine import storage
 
@@ -119,15 +119,23 @@ def test_session_invite_sans_signature(monkeypatch) -> None:
     monkeypatch.setattr(storage.smbclient, "ClientConfig", lambda: fake_config)
     monkeypatch.delenv("WORKSTATION_TOOLER_SMB_PASSWORD", raising=False)
 
-    storage.SmbStorageBackend("smb://localhost/Workstation_Tooler", username="guest")
+    backend = storage.SmbStorageBackend("smb://localhost/Workstation_Tooler", username="guest")
+    assert captured == {}  # aucune connexion à la construction.
 
+    backend._ensure_session()
     assert captured["server"] == "localhost"
     assert captured["username"] == "guest"
     assert captured["require_signing"] is False
     assert fake_config.require_secure_negotiate is False
 
+    # Un second appel ne réenregistre pas la session.
+    backend._ensure_session()
+    register_calls = list(captured.items())
+    backend._ensure_session()
+    assert list(captured.items()) == register_calls
 
-def test_session_authentifie_avec_signature(monkeypatch) -> None:
+
+def test_session_authentifiee_avec_signature_au_premier_acces(monkeypatch) -> None:
     """Avec un mot de passe (session authentifiée), la signature reste exigée."""
     from engine import storage
 
@@ -139,7 +147,9 @@ def test_session_authentifie_avec_signature(monkeypatch) -> None:
     )
     monkeypatch.setenv("WORKSTATION_TOOLER_SMB_PASSWORD", "secret")
 
-    storage.SmbStorageBackend("smb://localhost/Workstation_Tooler", username="pierre")
+    backend = storage.SmbStorageBackend("smb://localhost/Workstation_Tooler", username="pierre")
+    assert captured == {}
+    backend._ensure_session()
 
     assert captured["username"] == "pierre"
     assert captured["password"] == "secret"

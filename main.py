@@ -43,7 +43,7 @@ ICONS_DIR = Path(__file__).resolve().parent / "resources" / "icons"
 
 
 def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
-    """Charge les trois variantes d'icône du SystemTray (OK / Info / WIP).
+    """Charge les variantes d'icône du SystemTray (OK / Info / WIP / Erreur).
 
     Si les fichiers attendus sont absents (ex. non encore générés via
     ``resources/icons/generate_icon_variants.py``), une icône de secours du
@@ -53,17 +53,19 @@ def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
         app: Instance de l'application Qt, utilisée pour l'icône de secours.
 
     Returns:
-        Un dictionnaire ``{"ok": QIcon, "info": QIcon, "wip": QIcon}``.
+        Un dictionnaire ``{"ok", "info", "wip", "error"}`` d'icônes.
     """
     fallback = app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+    error_fallback = app.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxCritical)
     file_by_state = {
-        "ok": ICONS_DIR / "app_icon_ok.ico",
-        "info": ICONS_DIR / "app_icon_info.ico",
-        "wip": ICONS_DIR / "app_icon_wip.ico",
+        "ok": (ICONS_DIR / "app_icon_ok.ico", fallback),
+        "info": (ICONS_DIR / "app_icon_info.ico", fallback),
+        "wip": (ICONS_DIR / "app_icon_wip.ico", fallback),
+        "error": (ICONS_DIR / "app_icon_err.ico", error_fallback),
     }
     return {
-        state: QIcon(str(path)) if path.exists() else fallback
-        for state, path in file_by_state.items()
+        state: QIcon(str(path)) if path.exists() else state_fallback
+        for state, (path, state_fallback) in file_by_state.items()
     }
 
 

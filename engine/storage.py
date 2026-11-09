@@ -168,9 +168,12 @@ class SmbStorageBackend:
     l'utilisateur) ; smbprotocol, en revanche, attend des chemins UNC
     (``\\\\hôte\\partage\\chemin``), la conversion est faite ici.
 
-    La session SMB est enregistrée à la construction : authentification NTLM
-    avec le nom d'utilisateur fourni et le mot de passe lu exclusivement
-    depuis la variable d'environnement ``WORKSTATION_TOOLER_SMB_PASSWORD``.
+    La session SMB est **paresseuse** : elle n'est établie qu'au premier accès
+    (authentification NTLM avec le nom d'utilisateur fourni et le mot de passe
+    lu exclusivement depuis la variable d'environnement
+    ``WORKSTATION_TOOLER_SMB_PASSWORD``). Un partage injoignable ne fait donc
+    pas échouer la construction du backend — l'application démarre, et
+    l'erreur remonte aux tâches de fond qui consultent le catalogue.
     """
 
     def __init__(
@@ -180,7 +183,7 @@ class SmbStorageBackend:
         domain: str = "",
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        """Initialise la session et mémorise la racine du catalogue.
+        """Mémorise les paramètres de connexion (aucun accès réseau ici).
 
         Args:
             base_uri: Racine du catalogue au format ``smb://hôte/partage``.
@@ -199,12 +202,25 @@ class SmbStorageBackend:
         # pyspnego ne propose NTLM que si des identifiants existent : lorsqu'un
         # utilisateur est renseigné sans mot de passe (partage public mappé
         # invité côté serveur), on passe une chaîne vide plutôt que None.
-        password = os.environ.get(SMB_PASSWORD_ENV_VAR, "") if full_username else None
+        self._username = full_username
+        self._password = os.environ.get(SMB_PASSWORD_ENV_VAR, "") if full_username else None
+        self._timeout_seconds = timeout_seconds
+        self._session_registered = False
+
+    def _ensure_session(self) -> None:
+        """Établit la session SMB au premier accès, puis ne fait plus rien.
+
+        Raises:
+            OSError: Si le serveur est injoignable ou l'authentification
+                refusée — remontée aux appelateurs (tâches de fond).
+        """
+        if self._session_registered:
+            return
         # Une session invité ne peut ni signer ni chiffrer les messages SMB :
         # sans mot de passe (partage public), la signature obligatoire doit
         # être levée, faute de quoi le serveur rejette la session avec
         # « guest which does not support encryption or signing ».
-        guest_session = full_username and not password
+        guest_session = bool(self._username) and not self._password
         if guest_session:
             # La vérification d'intégrité de la négociation (secure negotiate)
             # repose elle aussi sur la clé de signature : sans clé (invité),
@@ -212,11 +228,12 @@ class SmbStorageBackend:
             smbclient.ClientConfig().require_secure_negotiate = False
         smbclient.register_session(
             self._server,
-            username=full_username or None,
-            password=password,
+            username=self._username or None,
+            password=self._password,
             require_signing=not guest_session,
-            connection_timeout=timeout_seconds,
+            connection_timeout=self._timeout_seconds,
         )
+        self._session_registered = True
 
     def _uri(self, path: str) -> str:
         """Construit le chemin UNC absolu d'un chemin relatif du catalogue."""
@@ -224,23 +241,28 @@ class SmbStorageBackend:
 
     def listdir(self, path: str) -> List[str]:
         """Liste les noms d'entrées du répertoire (voir protocole)."""
+        self._ensure_session()
         return sorted(smbclient.listdir(self._uri(path)))
 
     def is_dir(self, path: str) -> bool:
         """Indique si le chemin désigne un répertoire (voir protocole)."""
+        self._ensure_session()
         return smbclient.path.isdir(self._uri(path))
 
     def exists(self, path: str) -> bool:
         """Indique si le chemin existe (voir protocole)."""
+        self._ensure_session()
         return smbclient.path.exists(self._uri(path))
 
     def read_text(self, path: str) -> str:
         """Lit un fichier texte du partage (voir protocole)."""
+        self._ensure_session()
         with smbclient.open_file(self._uri(path), mode="rb") as source:
             return source.read().decode("utf-8")
 
     def download(self, path: str, destination: Path) -> None:
         """Recopie le fichier du partage vers la destination (voir protocole)."""
+        self._ensure_session()
         destination.parent.mkdir(parents=True, exist_ok=True)
         with smbclient.open_file(self._uri(path), mode="rb") as source:
             with destination.open("wb") as target:

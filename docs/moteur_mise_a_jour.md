@@ -122,7 +122,22 @@ plus immédiatement au démarrage si `update.check_on_startup`) ou par le menu
 « Vérifier les mises à jour ». Pour chaque application active : exécution de la
 commande de détection, comparaison au tri naturel avec la version la plus
 récente du catalogue (un poste **plus récent** que le catalogue n'est pas
-rétrogradé), et émission de `update_available` par application concernée.
+rétrogradé). Les mises à jour détectées sont publiées en **un seul événement
+groupé** (`catalog_updates_available`) : l'utilisateur voit une notification
+unique listant tous les logiciels concernés, pas une notification par logiciel.
+
+### Partage réseau inaccessible
+
+Un partage injoignable ne fait **jamais planter l'application** : la session
+SMB n'est établie qu'au premier accès (backend paresseux) et l'échec remonte
+aux tâches de fond. Le `Scheduler` suit la disponibilité de la ressource :
+
+- à la première détection d'indisponibilité : icône d'erreur du SystemTray
+  (`app_icon_err.ico`) et replanification du contrôle toutes les
+  `update.retry_interval_minutes` minutes (3 par défaut) — **sans
+  notification** (l'état est visible dans l'icône et les journaux) ;
+- dès la première réussite : retour à l'intervalle configuré et à l'état
+  d'icône normal (les transitions seules sont notifiées, pas chaque contrôle).
 
 ### Mise à jour
 
