@@ -1,5 +1,7 @@
 # `manifest.yaml` — fichiers d'une version du catalogue
 
+[← Sommaire du dossier](README.md) · [← Précédent : `app.yaml`](app_yaml.md) · [Suivant : `settings.yaml` →](settings_yaml.md)
+
 > Référence du manifest décrivant les fichiers à déployer pour une version
 > donnée d'une application. Vue d'ensemble :
 > [`moteur_mise_a_jour.md`](../moteur_mise_a_jour.md). Sommaire du dossier :

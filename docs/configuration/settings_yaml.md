@@ -1,5 +1,7 @@
 # `settings.yaml` — configuration locale de l'application
 
+[← Sommaire du dossier](README.md) · [← Précédent : `manifest.yaml`](manifest_yaml.md)
+
 > Référence du fichier `config/settings.yaml` présent sur **chaque poste**
 > (contrairement au catalogue distant, voir [`README.md`](README.md)).
 > Lecture au démarrage par [`core/config_loader.py`](../../core/config_loader.py)
@@ -47,7 +49,7 @@ ui:
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `level` | chaîne | `INFO` | Niveau minimal des journaux console (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). La sortie console est colorée par niveau ; les variables d'environnement `NO_COLOR` (désactive) et `FORCE_COLOR` (force) sont respectées. |
-| `file` | chaîne | — | **Non consommée à ce jour** : le fichier `logs/workstation_tooler.log` n'est pas encore branché sur cette clé (réservée à une évolution). |
+| `file` | chaîne | — | Chemin du fichier de journal (relatif à la racine du projet, ou absolu). Créé au premier lancement avec ses répertoires parents — garantit des journaux persistants même sans console (`pythonw` sous Windows). Vide ou absent : console seule. |
 
 ### `update` — planification et comportement des mises à jour
 

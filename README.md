@@ -68,9 +68,18 @@ Les variantes colorées des icônes du SystemTray se régénèrent via :
 
 ## Structure du projet
 
-L'arborescence de référence est décrite dans
-[`docs/arborescence.md`](docs/arborescence.md), le fonctionnement du moteur
-dans [`docs/moteur_mise_a_jour.md`](docs/moteur_mise_a_jour.md).
+### Documentation
+
+| Document | Contenu |
+|---|---|
+| [`docs/arborescence.md`](docs/arborescence.md) | Arborescence de référence du dépôt |
+| [`docs/moteur_mise_a_jour.md`](docs/moteur_mise_a_jour.md) | Moteur des applications gérées (vue d'ensemble) |
+| [`docs/architecture_technique.md`](docs/architecture_technique.md) | **Architecture** : couches, singletons, signaux de l'EventBus, modèle de threading |
+| [`docs/maj_application.md`](docs/maj_application.md) | Mise à jour autonome de l'application (forge, updater.py) |
+| [`docs/exploitation_catalogue.md`](docs/exploitation_catalogue.md) | **Guide administrateur du partage** : publier, tester, retirer une version |
+| [`docs/deploiement_poste.md`](docs/deploiement_poste.md) | **Installation d'un poste** : installation initiale, autostart, Windows, désinstallation |
+| [`docs/configuration/README.md`](docs/configuration/README.md) | **Références YAML** : sommaire et navigation — [`app_yaml.md`](docs/configuration/app_yaml.md), [`manifest_yaml.md`](docs/configuration/manifest_yaml.md), [`settings_yaml.md`](docs/configuration/settings_yaml.md) |
+| [`examples/partage/README.md`](examples/partage/README.md) | Catalogue d'exemple à recopier sur un partage de test |
 
 ## Agents IA
 

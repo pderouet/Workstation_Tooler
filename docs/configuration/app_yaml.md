@@ -1,5 +1,7 @@
 # `app.yaml` — métadonnées d'une application du catalogue
 
+[← Sommaire du dossier](README.md) · [Suivant : `manifest.yaml` →](manifest_yaml.md)
+
 > Référence du fichier décrivant une application gérée dans le catalogue
 > distant. Vue d'ensemble : [`moteur_mise_a_jour.md`](../moteur_mise_a_jour.md).
 > Sommaire du dossier : [`README.md`](README.md).

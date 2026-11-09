@@ -14,12 +14,12 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox, QStyle
 
-from core.config_loader import ConfigLoader
+from core.config_loader import PROJECT_ROOT, ConfigLoader
 from core.error_handler import ErrorHandler
 from core.event_bus import EventBus
 from core.logger import Logger
@@ -69,18 +69,34 @@ def load_tray_icons(app: QApplication) -> dict[str, QIcon]:
     }
 
 
-def bootstrap() -> Tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler]:
+def bootstrap(
+    config: Optional[ConfigLoader] = None,
+) -> Tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler]:
     """Initialise les singletons du socle applicatif.
+
+    Le niveau de log et le fichier de journal (``logging.level`` et
+    ``logging.file`` de la configuration) sont appliqués ici : le fichier
+    (relatif à la racine du projet ou absolu) est créé au premier lancement,
+    ce qui garantit des journaux persistants même sans console (``pythonw``
+    sous Windows).
+
+    Args:
+        config: Configuration à utiliser (défaut : le ``ConfigLoader``
+            singleton sur ``config/settings.yaml``) — injectable pour les
+            tests.
 
     Returns:
         Un tuple contenant les instances uniques du ``Logger``, de
         l'``EventBus``, du ``ConfigLoader``, du ``ThreadManager`` et de
         l'``ErrorHandler``.
     """
-    config = ConfigLoader()
+    config = config or ConfigLoader()
 
-    log_level_name = str(config.get_setting("logging.level", default="INFO")).upper()
-    logger = Logger(level=LOG_LEVELS.get(log_level_name, logging.INFO))
+    log_level = LOG_LEVELS.get(
+        str(config.get_setting("logging.level", default="INFO")).upper(), logging.INFO
+    )
+    logger = Logger()
+    logger.configure(log_file=_log_file_path(config), level=log_level)
 
     event_bus = EventBus()
     thread_manager = ThreadManager()
@@ -90,6 +106,23 @@ def bootstrap() -> Tuple[Logger, EventBus, ConfigLoader, ThreadManager, ErrorHan
         "Socle applicatif initialisé (Logger, EventBus, ConfigLoader, ThreadManager, ErrorHandler)."
     )
     return logger, event_bus, config, thread_manager, error_handler
+
+
+def _log_file_path(config: ConfigLoader) -> Optional[Path]:
+    """Résout le chemin du fichier de journal depuis la configuration.
+
+    Args:
+        config: Configuration générale.
+
+    Returns:
+        Le chemin (relatif ramené à la racine du projet), ou ``None`` si la
+        clé ``logging.file`` est absente ou vide.
+    """
+    value = config.get_setting("logging.file")
+    if not value:
+        return None
+    log_path = Path(str(value))
+    return log_path if log_path.is_absolute() else PROJECT_ROOT / log_path
 
 
 def build_repository(config: ConfigLoader) -> RemoteRepository:

@@ -25,7 +25,10 @@
 ├── docs/
 │   ├── arborescence.md                 # Ce document : description de référence de l'arborescence
 │   ├── moteur_mise_a_jour.md           # Référence du moteur : catalogue distant, manifests, actions
+│   ├── architecture_technique.md       # Architecture : couches, singletons, signaux EventBus, threading
 │   ├── maj_application.md              # Référence de la mise à jour autonome de l'application (forge, updater.py)
+│   ├── exploitation_catalogue.md       # Guide administrateur du partage (publier/tester/retirer des versions)
+│   ├── deploiement_poste.md            # Installation d'un poste (autostart, volet Windows, désinstallation)
 │   └── configuration/                  # Références détaillées des formats YAML
 │       ├── README.md                   # Sommaire des références de configuration
 │       ├── app_yaml.md                 # Schéma complet de app.yaml (catalogue distant)
